@@ -42,8 +42,14 @@
 
 <script type="module">
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { RGBELoader }    from 'three/addons/loaders/RGBELoader.js';
+import { OrbitControls }    from 'three/addons/controls/OrbitControls.js';
+import { RGBELoader }       from 'three/addons/loaders/RGBELoader.js';
+import { EffectComposer }   from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass }       from 'three/addons/postprocessing/RenderPass.js';
+import { ShaderPass }       from 'three/addons/postprocessing/ShaderPass.js';
+import { OutputPass }       from 'three/addons/postprocessing/OutputPass.js';
+import { UnrealBloomPass }  from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { FXAAShader }       from 'three/addons/shaders/FXAAShader.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // HARD DIMENSIONS (meters) — DO NOT CHANGE
@@ -631,19 +637,17 @@ envBox(3.0, 0.04, 62, matCurb, 20.8, 0.02, 0, { castShadow: false });
 // Curb on far side
 envBox(0.25, 0.20, 62, matCurb, 22.25, 0.10, 0);
 
-// ─ Neighbor buildings (2-3 simple stucco massing boxes) ──────────────────
-// Building A (larger, spans full Z)
-envBox(8, 8.5, 24, matStucco,  27.5, 4.25, -5);
-// flat roof strip
-envBox(8.4, 0.3, 24.4, matCurb, 27.5, 8.65, -5);
+// ─ Neighbor buildings — pushed well across the street so cameras see building ─
+// Buildings are across a wide ~22m street; cameras at X≈16-28 face TOWARD building (−X dir)
+// so neighbors at X=42+ are behind the camera and won't block the main building.
+envBox(10, 8.5, 26, matStucco,  43, 4.25, -4);
+envBox(10.4, 0.3, 26.4, matCurb, 43, 8.65, -4);
 
-// Building B (shorter)
-envBox(7, 7.0, 18, matStuccoB, 27.5, 3.5, 20);
-envBox(7.4, 0.25, 18.4, matCurb, 27.5, 7.13, 20);
+envBox(9, 7.0, 20, matStuccoB, 43, 3.5, 22);
+envBox(9.4, 0.25, 20.4, matCurb, 43, 7.13, 22);
 
-// Building C (taller, set back)
-envBox(9, 9.5, 16, matStucco, 30.5, 4.75, -23);
-envBox(9.4, 0.3, 16.4, matCurb, 30.5, 9.65, -23);
+envBox(11, 9.5, 18, matStucco, 46, 4.75, -24);
+envBox(11.4, 0.3, 18.4, matCurb, 46, 9.65, -24);
 
 // ─ -X side: small sidewalk + embankment parapet ───────────────────────────
 envBox(0.30, 0.22, 48, matCurb, -13.0, 0.11, 0);   // curb
@@ -672,10 +676,10 @@ const treePositions = [
 ];
 const crownMats = [matTreeCrown, matTreeCrownB, matTreeCrown, matTreeCrownB, matTreeCrown, matTreeCrownB];
 treePositions.forEach(([x, y, z], i) => {
-  const h = 5.5 + (i % 3) * 0.8;
-  const r = 1.8 + (i % 2) * 0.4;
-  envCylinder(0.15, 0.22, h * 0.55, 6, matTrunk, x, h * 0.275, z);  // trunk lower half
-  envSphere(r, crownMats[i], x, h * 0.55 + r * 0.6, z);              // crown
+  const h = 5.8 + (i % 3) * 0.7;
+  const r = 1.3 + (i % 2) * 0.3;
+  envCylinder(0.12, 0.18, h * 0.6, 6, matTrunk, x, h * 0.3, z);
+  envSphere(r, crownMats[i], x, h * 0.6 + r * 0.55, z);
 });
 
 // ─ Street lamps along +X sidewalk ─────────────────────────────────────────
@@ -703,7 +707,7 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.18;
+renderer.toneMappingExposure = 1.15;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 const scene = new THREE.Scene();
@@ -723,13 +727,13 @@ function makeSunsetSkyTex() {
   c.width = 4; c.height = 512;
   const ctx = c.getContext('2d');
   const g = ctx.createLinearGradient(0, 0, 0, 512);
-  g.addColorStop(0.00, '#0a1535');  // deep blue zenith
-  g.addColorStop(0.28, '#1a3d72');  // blue sky
-  g.addColorStop(0.46, '#6b3520');  // orange-brown band
-  g.addColorStop(0.56, '#c85818');  // bright orange horizon
-  g.addColorStop(0.65, '#e0884a');  // warm yellow haze
-  g.addColorStop(0.75, '#d4a870');  // peach horizon haze
-  g.addColorStop(1.00, '#c8b090');  // warm tan ground reflection
+  g.addColorStop(0.00, '#0e2060');  // rich blue zenith
+  g.addColorStop(0.25, '#1850b0');  // clear blue sky
+  g.addColorStop(0.42, '#5080d0');  // lighter blue near horizon
+  g.addColorStop(0.52, '#e06820');  // orange-red horizon band
+  g.addColorStop(0.60, '#f09840');  // bright warm orange glow
+  g.addColorStop(0.70, '#e8b870');  // golden yellow haze
+  g.addColorStop(1.00, '#d0b890');  // warm tan ground sky
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 4, 512);
   const t = new THREE.CanvasTexture(c);
@@ -814,11 +818,46 @@ controls.maxDistance = 300;
 controls.maxPolarAngle = Math.PI * 0.495;
 controls.update();
 
+// ── EffectComposer post-processing ───────────────────────────────────────
+let composer;
+try {
+  composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+
+  // Subtle bloom — highlights on sun-lit glass, metal, water
+  const bloom = new UnrealBloomPass(
+    new THREE.Vector2(innerWidth, innerHeight), 0.30, 0.4, 0.85);
+  composer.addPass(bloom);
+
+  // OutputPass handles ACESFilmic tone-mapping → sRGB output
+  composer.addPass(new OutputPass());
+
+  // FXAA anti-aliasing on top of MSAA
+  const fxaaPass = new ShaderPass(FXAAShader);
+  fxaaPass.uniforms['resolution'].value.set(1 / innerWidth, 1 / innerHeight);
+  composer.addPass(fxaaPass);
+
+  window.__composer = composer;
+} catch (e) {
+  console.warn('EffectComposer failed, falling back to direct render:', e.message);
+  composer = null;
+}
+
+function doRender() {
+  if (composer) composer.render();
+  else renderer.render(scene, camera);
+}
+
 function resize() {
   const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  if (composer) {
+    composer.setSize(w, h);
+    const fxaaPass = composer.passes.find(p => p.uniforms && p.uniforms['resolution']);
+    if (fxaaPass) fxaaPass.uniforms['resolution'].value.set(1 / w, 1 / h);
+  }
 }
 addEventListener('resize', resize);
 resize();
@@ -826,7 +865,7 @@ resize();
 function loop() {
   requestAnimationFrame(loop);
   controls.update();
-  renderer.render(scene, camera);
+  doRender();
 }
 loop();
 
@@ -835,7 +874,7 @@ window.setView = (px, py, pz, tx, ty, tz, fov) => {
   controls.target.set(tx, ty, tz);
   if (fov) { camera.fov = fov; camera.updateProjectionMatrix(); }
   controls.update();
-  renderer.render(scene, camera);
+  doRender();
 };
 window.__THREE = THREE;
 window.__scene = scene;
