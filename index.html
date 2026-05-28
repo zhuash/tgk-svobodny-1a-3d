@@ -34,8 +34,8 @@
 <div id="vignette"></div>
 <div id="hud">
   <div><b>ТГК «Свободный 1а»</b> — массинг с окружением</div>
-  <div class="dim">Footprint 18 × 34 м · высота 9.5 м</div>
-  <div class="dim">1 эт 3.4 · 2 эт 2.9 · мансарда 3.2 м</div>
+  <div class="dim">Footprint 18 × 34 м · высота 11 м</div>
+  <div class="dim">1 эт 3.3 · 2 эт 3.3 · мансарда 4.4 м</div>
   <div class="dim">мышь: вращать · колесо: зум</div>
 </div>
 <canvas id="app"></canvas>
@@ -55,14 +55,14 @@ import { FXAAShader }       from 'three/addons/shaders/FXAAShader.js';
 // HARD DIMENSIONS (meters) — DO NOT CHANGE
 // ─────────────────────────────────────────────────────────────────────────
 const W = 18, L = 34;
-const H_F1 = 3.4, H_F2 = 2.9, H_MAN = 3.2;
-const H_TOTAL = H_F1 + H_F2 + H_MAN;   // = 9.5
+const H_F1 = 3.3, H_F2 = 3.3, H_MAN = 4.4;
+const H_TOTAL = H_F1 + H_F2 + H_MAN;   // = 11.0
 const Y_F1 = 0, Y_F2 = H_F1, Y_MAN = H_F1 + H_F2, Y_TOP = H_TOTAL;
 const PLINTH = 0.55;
 const WALL_FACE_X = W / 2, WALL_FACE_Z = L / 2;
 const SILL = 0.60;
 const INSET = 1.35;
-const SLOPE_TOP_Y = H_TOTAL - 0.5;     // = 9.0
+const SLOPE_TOP_Y = H_TOTAL - 0.5;     // = 10.5
 
 // ═════════════════════════════════════════════════════════════════════════
 // PROCEDURAL TEXTURES
@@ -526,7 +526,7 @@ box(pT, paraH, 2 * halfLt + 2 * pT, matParapet, -halfWt, pcY, 0);
 
 // ═════════════════════════════════════════════════════════════════════════
 // ENVIRONMENT GEOMETRY
-// Building: X=[-9,+9], Z=[-17,+17], Y=[0,9.5]
+// Building: X=[-9,+9], Z=[-17,+17], Y=[0,11]
 // Street side: +X (PX long facade at x=+9)
 // Embankment side: +Z (PZ short facade at z=+17)
 // ═════════════════════════════════════════════════════════════════════════
