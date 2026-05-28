@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ТГК «Свободный 1а» — 3D массинг (18×34, H=9.5 м)</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #eef2f5; overflow: hidden; }
+  #app { width: 100vw; height: 100vh; display: block; }
+  #hud {
+    position: fixed; left: 12px; top: 12px; z-index: 10;
+    font: 12px/1.45 system-ui, sans-serif; color: #2a2f33;
+    background: rgba(255,255,255,.78); padding: 8px 11px; border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.12); pointer-events: none; max-width: 280px;
+  }
+  #hud b { color: #11161a; }
+  #hud .dim { color: #5a6168; }
+</style>
+<!-- Local Three.js (offline-safe) with importmap so addons resolve "three" -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "./libs/three.module.min.js",
+    "three/addons/": "./libs/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="hud">
+  <div><b>ТГК «Свободный 1а»</b> — массинг</div>
+  <div class="dim">Footprint 18 × 34 м · высота 9.5 м</div>
+  <div class="dim">1 эт 3.4 · 2 эт 2.9 · мансарда 3.2 м</div>
+  <div class="dim">мышь: вращать · колесо: зум</div>
+</div>
+<canvas id="app"></canvas>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ─────────────────────────────────────────────────────────────────────────
+// HARD DIMENSIONS (meters)
+// ─────────────────────────────────────────────────────────────────────────
+const W = 18;          // ширина (X) — короткий фасад 18 м
+const L = 34;          // длина  (Z) — длинный фасад 34 м
+const H_F1 = 3.4;      // 1 этаж (ресторан): 3.1 чистый + 0.3 перекрытие
+const H_F2 = 2.9;      // 2 этаж (номера)
+const H_MAN = 3.2;     // мансарда (остаток до 9.5)
+const H_TOTAL = H_F1 + H_F2 + H_MAN;   // = 9.5
+
+const Y_F1 = 0;                 // низ 1 этажа
+const Y_F2 = H_F1;              // = 3.4  низ 2 этажа
+const Y_MAN = H_F1 + H_F2;      // = 6.3  низ мансарды
+const Y_TOP = H_TOTAL;          // = 9.5  верх парапета
+
+const PLINTH = 0.55;            // цоколь невысокий
+const WALL_FACE_X = W / 2;      // +/-9
+const WALL_FACE_Z = L / 2;      // +/-17
+
+const SILL = 0.60;              // подоконник 600 мм (над уровнем пола этажа)
+
+// мансарда: крутой скат (парижский профиль) — низ = footprint, верх = inset, плоский верх
+const INSET = 1.35;             // горизонтальный завал ската на сторону
+const SLOPE_TOP_Y = H_TOTAL - 0.5;   // = 9.0 верх ската (выше — парапет до 9.5)
+
+// ── materials ────────────────────────────────────────────────────────────
+const matStone = new THREE.MeshStandardMaterial({ color: 0xe9e0cd, roughness: 0.88, metalness: 0.02 }); // тёплый кремовый травертин
+const matStoneShade = new THREE.MeshStandardMaterial({ color: 0xded3bd, roughness: 0.9,  metalness: 0.02 }); // цоколь/карниз чуть темнее
+const matGlass = new THREE.MeshStandardMaterial({ color: 0x2b333a, roughness: 0.12, metalness: 0.85, envMapIntensity: 1.0 }); // тёмно-серое стекло
+const matCore  = new THREE.MeshStandardMaterial({ color: 0x6b6f73, roughness: 1.0 });
+
+// standing-seam (фальц) texture for the mansard
+function seamTexture() {
+  const c = document.createElement('canvas'); c.width = 128; c.height = 16;
+  const g = c.getContext('2d');
+  g.fillStyle = '#393e44'; g.fillRect(0, 0, 128, 16);
+  for (let x = 0; x < 128; x += 12) {
+    g.fillStyle = '#2c3035'; g.fillRect(x, 0, 2, 16);     // тёмный шов
+    g.fillStyle = '#454b52'; g.fillRect(x + 2, 0, 1, 16); // блик
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 8;
+  return t;
+}
+const seamTex = seamTexture();
+const matSeam = new THREE.MeshStandardMaterial({ color: 0x474e55, roughness: 0.62, metalness: 0.3, map: seamTex }); // тёмный фальц
+const matRoof = new THREE.MeshStandardMaterial({ color: 0x565d64, roughness: 0.85, metalness: 0.1 });            // плоская кровля
+
+// ── helpers ────────────────────────────────────────────────────────────--
+const root = new THREE.Group();
+
+function box(sx, sy, sz, mat, x, y, z) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
+  m.position.set(x, y, z);
+  m.castShadow = true; m.receiveShadow = true;
+  root.add(m);
+  return m;
+}
+
+// facade descriptor: normal axis + sign + plane coord + horizontal "u" axis
+const FACADES = {
+  PX: { axis: 'x', sign: +1, plane: +WALL_FACE_X, span: L },
+  NX: { axis: 'x', sign: -1, plane: -WALL_FACE_X, span: L },
+  PZ: { axis: 'z', sign: +1, plane: +WALL_FACE_Z, span: W },
+  NZ: { axis: 'z', sign: -1, plane: -WALL_FACE_Z, span: W },
+};
+
+// place a box on a facade. uPos along facade, yC vertical center,
+// uSize width, ySize height, outFace = outer face coord beyond wall plane,
+// depth = thickness along the normal.
+function onFacade(f, uPos, yC, uSize, ySize, outFace, depth, mat) {
+  // outFace = distance the *near* face sits beyond the wall plane (can be negative = recessed)
+  const center = f.plane + f.sign * (outFace + depth / 2);
+  if (f.axis === 'x') return box(depth, ySize, uSize, mat, center, yC, uPos);
+  else                return box(uSize, ySize, depth, mat, uPos, yC, center);
+}
+
+// world point from facade-local (n = along normal abs coord, u = along facade, y)
+function mapW(f, n, u, y) {
+  return (f.axis === 'x') ? new THREE.Vector3(n, y, u) : new THREE.Vector3(u, y, n);
+}
+// box sized in facade-local axes (nS along normal, uS along facade, yS vertical)
+function boxAxis(f, nC, uC, yC, nS, uS, yS, mat) {
+  return (f.axis === 'x') ? box(nS, yS, uS, mat, nC, yC, uC)
+                          : box(uS, yS, nS, mat, uC, yC, nC);
+}
+// mansard slope normal-coord at height y (recedes inward as y rises)
+function slopeN(f, y) {
+  const fr = Math.max(0, Math.min(1, (y - Y_MAN) / (SLOPE_TOP_Y - Y_MAN)));
+  return f.plane - f.sign * INSET * fr;
+}
+// flat triangle from 3 Vector3
+function tri(a, b, c, mat) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+    a.x,a.y,a.z, b.x,b.y,b.z, c.x,c.y,c.z]), 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array([0,0, 1,0, 1,1]), 2));
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, mat); m.castShadow = true; m.receiveShadow = true;
+  root.add(m); return m;
+}
+
+// evenly distributed bay centers along a facade of given span
+function bayCenters(span, count, margin) {
+  const usable = span - 2 * margin;
+  const step = usable / count;
+  const out = [];
+  for (let i = 0; i < count; i++) out.push(-span / 2 + margin + (i + 0.5) * step);
+  return { centers: out, step };
+}
+
+// a recessed window: projecting stone architrave + dark glass set behind it
+// base = wall-plane offset (0 for facade, negative to recess into a dormer front)
+function window2(f, uPos, yb, yt, wWidth, base = 0) {
+  const yC = (yb + yt) / 2, ySize = yt - yb;
+  const fr = 0.10;            // architrave reveal width
+  const proj = 0.09;          // how far architrave projects from base
+  onFacade(f, uPos, yC, wWidth, ySize, base + 0.0, 0.04, matGlass);
+  onFacade(f, uPos, yt + fr / 2, wWidth + 2 * fr, fr, base, proj, matStone); // top
+  onFacade(f, uPos, yb - fr / 2, wWidth + 2 * fr, fr, base, proj, matStone); // bottom (sill)
+  onFacade(f, uPos - wWidth / 2 - fr / 2, yC, fr, ySize, base, proj, matStone); // left
+  onFacade(f, uPos + wWidth / 2 + fr / 2, yC, fr, ySize, base, proj, matStone); // right
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// BAY RHYTHM  (long facade 10 bays, short facade 5 bays — same pitch ≈3 м)
+// ─────────────────────────────────────────────────────────────────────────
+const bayLong  = bayCenters(L, 10, 1.7);
+const bayShort = bayCenters(W,  5, 1.6);
+function baysFor(f) { return (f.axis === 'x') ? bayLong : bayShort; }
+
+// ─────────────────────────────────────────────────────────────────────────
+// SOLID CORE (floors 1+2) — cream mass, no see-through
+// ─────────────────────────────────────────────────────────────────────────
+box(W, H_F1 + H_F2, L, matStone, 0, (Y_F1 + Y_MAN) / 2, 0);
+// inner dark core to back the glazing (slightly smaller, hidden)
+box(W - 0.7, H_F1 + H_F2 - 0.2, L - 0.7, matCore, 0, (Y_F1 + Y_MAN) / 2, 0);
+
+// plinth (цоколь) — slightly proud, darker
+box(W + 0.3, PLINTH, L + 0.3, matStoneShade, 0, PLINTH / 2, 0);
+
+// ─────────────────────────────────────────────────────────────────────────
+// PER-FACADE ARTICULATION
+// ─────────────────────────────────────────────────────────────────────────
+for (const key of ['PX', 'NX', 'PZ', 'NZ']) {
+  const f = FACADES[key];
+  const { centers, step } = baysFor(f);
+
+  // ── 1 ЭТАЖ: витражи в пол, разделённые плоскими пилястрами ──────────────
+  const vitB = PLINTH;            // низ витража (над цоколем)
+  const vitT = Y_F2 - 0.30;       // верх витража (под перекрытием 0.3)
+  const vitW = step * 0.66;       // ширина витража
+  for (const c of centers) {
+    onFacade(f, c, (vitB + vitT) / 2, vitW, vitT - vitB, 0.0, 0.05, matGlass);
+  }
+  // плоские пилястры между витражами (лёгкий вертикальный выступ)
+  const pilW = 0.34;
+  for (let i = 0; i <= centers.length; i++) {
+    const pc = (i === 0) ? centers[0] - step / 2
+            : (i === centers.length) ? centers[centers.length - 1] + step / 2
+            : (centers[i - 1] + centers[i]) / 2;
+    onFacade(f, pc, (vitB + vitT) / 2 + 0.0, pilW, vitT - vitB + 0.1, 0.0, 0.10, matStone);
+  }
+  // тонкий поясок над витражами (перемычка 1 этажа)
+  onFacade(f, 0, Y_F2 - 0.15, f.span - 0.2, 0.30, 0.0, 0.06, matStone);
+
+  // ── 2 ЭТАЖ: узкие высокие окна, подоконник 600 мм, без балконов ─────────
+  const w2b = Y_F2 + SILL;        // = 4.0  низ окна
+  const w2t = Y_MAN - 0.30;       // = 6.0  верх окна (под карнизом)
+  const w2W = step * 0.34;        // узкая вертикальная пропорция
+  for (const c of centers) window2(f, c, w2b, w2t, w2W);
+
+  // ── ДОРМЕРЫ: вертикальные, ВЫСТУПАЮТ из тёмного ската (щёки+кепка) ───────
+  // тёмный скат остаётся главной поверхностью; дормеры — крупные окна в нём.
+  const dW = step * 0.50;             // ширина дормера
+  const yb = Y_MAN + 0.40;            // низ дормера (≈ где фронт встречает скат)
+  const yt = Y_MAN + 2.05;            // верх дормера (выше — тёмный скат + парапет)
+  const front = f.plane - f.sign * 0.20;   // фронт чуть утоплен от стены, выступает из ската
+  const sTop = slopeN(f, yt);              // нормаль-координата ската на верху дормера
+  for (const c of centers) {
+    // тёмные щёки (треугольники между фронтом и скатом) по обоим краям
+    for (const s of [-1, 1]) {
+      const u = c + s * dW / 2;
+      tri(mapW(f, front, u, yt), mapW(f, front, u, yb), mapW(f, sTop, u, yt), matSeam);
+    }
+    // плоская тёмная кепка дормера
+    boxAxis(f, (front + sTop) / 2, c, yt + 0.09, Math.abs(front - sTop) + 0.05, dW + 0.18, 0.18, matSeam);
+    // окно дормера (стекло + кремовый наличник), подоконник 600 мм, утоплено к фронту
+    window2(f, c, Y_MAN + SILL + 0.20, yt - 0.18, dW - 0.30, -0.20);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// КАРНИЗ между 2 этажом и мансардой (выступающий пояс)
+// ─────────────────────────────────────────────────────────────────────────
+box(W + 0.7, 0.45, L + 0.7, matStoneShade, 0, Y_MAN - 0.02, 0);
+
+// ─────────────────────────────────────────────────────────────────────────
+// МАНСАРДА — крутые скаты (тёмный фальц) + плоский верх + парапет
+// парижский профиль: низ = footprint, верх = inset, плоская кровля
+// ─────────────────────────────────────────────────────────────────────────
+const slopeTopY = SLOPE_TOP_Y;            // 9.0 — верх ската
+const halfWb = W / 2,  halfLb = L / 2;    // низ
+const halfWt = W / 2 - INSET, halfLt = L / 2 - INSET; // верх ската
+
+// build 4 trapezoidal slope panels from raw vertices (double-sided seam mat)
+function slope(b0, b1, t1, t0) {
+  const g = new THREE.BufferGeometry();
+  const v = new Float32Array([
+    b0[0], b0[1], b0[2],  b1[0], b1[1], b1[2],  t1[0], t1[1], t1[2],
+    b0[0], b0[1], b0[2],  t1[0], t1[1], t1[2],  t0[0], t0[1], t0[2],
+  ]);
+  g.setAttribute('position', new THREE.BufferAttribute(v, 3));
+  // simple UVs so the seam texture repeats along the width
+  const wlen = Math.hypot(b1[0]-b0[0], b1[2]-b0[2]);
+  g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array([
+    0,0, wlen/2.2,0, wlen/2.2,1,  0,0, wlen/2.2,1, 0,1
+  ]), 2));
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, matSeam);
+  m.castShadow = true; m.receiveShadow = true;
+  root.add(m);
+}
+const yb = Y_MAN, yt = slopeTopY;
+// +X
+slope([ halfWb,yb,-halfLb],[ halfWb,yb, halfLb],[ halfWt,yt, halfLt],[ halfWt,yt,-halfLt]);
+// -X
+slope([-halfWb,yb, halfLb],[-halfWb,yb,-halfLb],[-halfWt,yt,-halfLt],[-halfWt,yt, halfLt]);
+// +Z
+slope([ halfWb,yb, halfLb],[-halfWb,yb, halfLb],[-halfWt,yt, halfLt],[ halfWt,yt, halfLt]);
+// -Z
+slope([-halfWb,yb,-halfLb],[ halfWb,yb,-halfLb],[ halfWt,yt,-halfLt],[-halfWt,yt,-halfLt]);
+
+// плоская кровля (тёмная) на верху ската
+box(2 * halfWt + 0.05, 0.12, 2 * halfLt + 0.05, matRoof, 0, slopeTopY, 0);
+
+// парапет по верху мансарды (кремовый, углы перекрыты), верх = 9.5 м
+const paraH = Y_TOP - slopeTopY;  // 0.5
+const pcY = slopeTopY + paraH / 2;
+const pT = 0.32;
+box(2 * halfWt + 2 * pT, paraH, pT, matStone, 0, pcY,  halfLt);
+box(2 * halfWt + 2 * pT, paraH, pT, matStone, 0, pcY, -halfLt);
+box(pT, paraH, 2 * halfLt + 2 * pT, matStone,  halfWt, pcY, 0);
+box(pT, paraH, 2 * halfLt + 2 * pT, matStone, -halfWt, pcY, 0);
+
+// ─────────────────────────────────────────────────────────────────────────
+// SCENE / RENDERER
+// ─────────────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('app');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.04;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+const scene = new THREE.Scene();
+
+// светлое небо лёгким градиентом
+(function () {
+  const c = document.createElement('canvas'); c.width = 4; c.height = 256;
+  const g = c.getContext('2d');
+  const grd = g.createLinearGradient(0, 0, 0, 256);
+  grd.addColorStop(0.0, '#bcd7ee');
+  grd.addColorStop(0.55, '#dfeaf3');
+  grd.addColorStop(1.0, '#f3f6f8');
+  g.fillStyle = grd; g.fillRect(0, 0, 4, 256);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  scene.background = t;
+})();
+
+scene.add(root);
+
+// земля — нейтральное светло-серое мощение
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(400, 400),
+  new THREE.MeshStandardMaterial({ color: 0xbfc2c4, roughness: 0.97 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// ── свет ───────────────────────────────────────────────────────────────--
+const hemi = new THREE.HemisphereLight(0xdfeaf5, 0x9a958c, 0.85);
+scene.add(hemi);
+scene.add(new THREE.AmbientLight(0xffffff, 0.18));
+
+const sun = new THREE.DirectionalLight(0xfff3df, 2.6);
+sun.position.set(34, 38, 26);            // ~45°, спереди-справа
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 160;
+sun.shadow.camera.left = -36; sun.shadow.camera.right = 36;
+sun.shadow.camera.top = 40;  sun.shadow.camera.bottom = -10;
+sun.shadow.bias = -0.0004;
+sun.shadow.normalBias = 0.03;
+scene.add(sun);
+scene.add(sun.target); sun.target.position.set(0, 4, 0);
+
+// ── камера: угловой 3/4 ракурс, обе стороны (18 и 34) видны ────────────────
+const camera = new THREE.PerspectiveCamera(45, 16 / 11, 0.1, 2000);
+camera.position.set(29, 6.2, 35);        // приподнятый пешеходный 3/4, обе стороны видны
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 4.3, 0);
+controls.enableDamping = true;
+controls.minDistance = 12;
+controls.maxDistance = 200;
+controls.maxPolarAngle = Math.PI * 0.495; // не уходить под землю
+controls.update();
+
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+resize();
+
+function loop() {
+  requestAnimationFrame(loop);
+  controls.update();
+  renderer.render(scene, camera);
+}
+loop();
+
+// expose for headless screenshot tooling: override camera + render one frame
+window.setView = (px, py, pz, tx, ty, tz) => {
+  camera.position.set(px, py, pz);
+  controls.target.set(tx, ty, tz);
+  controls.update();
+  renderer.render(scene, camera);
+};
+window.__ready = true;
+</script>
+</body>
+</html>
