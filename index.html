@@ -522,56 +522,55 @@ hipTri(cBL, rL, cFL, matSeam);
 // Ridge cap beam
 box(0.22, 0.16, 2 * hRz + 0.20, matRoof, 0, yRd - 0.08, 0);
 
-// ─── DORMERS: proper мансардные окна with gable cap ─────────────────────
-// Wider (1.6 m body), shorter wall (0.85 m) + 0.38 m gable — reads as window not chimney
-const dWallH  = 0.85;
-const dWidth  = 1.60;
-const dDepth  = 0.55;
-const dBaseY  = Y_EAVE + 0.30;           // 7.70 — near eave
-const dTopY   = dBaseY + dWallH;          // 8.55
-const dGableH = 0.38;
-const dPeakY  = dTopY + dGableH;          // 8.93
-const dGW     = dWidth / 2 + 0.08;       // 0.88 — gable half-width with overhang
+// ─── DORMERS: wall dormers cutting the cornice (окна прорезают карниз) ──────
+// Glass starts below Y_EAVE (into 2F wall), rises through cornice into dormer gable above.
+const dWidth      = 1.60;
+const dDepth      = 0.45;
+const dBelow      = 0.85;                       // glass below eave
+const dAbove      = 1.00;                       // glass + dormer above eave
+const dGlassBaseY = Y_EAVE - dBelow;            // 6.55 — sill well into 2F wall
+const dWallTopY   = Y_EAVE + dAbove;            // 8.40 — top of dormer walls
+const dGlassH     = dWallTopY - dGlassBaseY;    // 1.85
+const dGableH     = 0.40;
+const dPeakY      = dWallTopY + dGableH;        // 8.80
+const dGW         = dWidth / 2 + 0.10;          // gable half-width with overhang
 
-// Slope X at dormer base: x = hHW − ΔY * (hHW / (Y_RIDGE − Y_EAVE))
-const dSlX    = hHW - (dBaseY - Y_EAVE) * (hHW / (Y_RIDGE - Y_EAVE));  // 8.25
-const dFrontX = dSlX + 0.15;             // 8.40
-const dBodyXC = dFrontX - dDepth / 2;    // 8.125
-const dBackX  = dFrontX - dDepth;        // 7.85
+// Dormer front face proud of cornice (cornice face ≈ hHW+0.35=9.35)
+const dFrontX = hHW + 0.45;             // 9.45
+const dBodyXC = dFrontX - dDepth / 2;   // 9.225
+const dBackX  = dFrontX - dDepth;       // 9.0 (flush with facade wall face)
 
 function buildDormer(sign, zc) {
   const fX  = sign * dFrontX;
   const bX  = sign * dBackX;
   const bcX = sign * dBodyXC;
-  // Front wall body
-  box(dDepth, dWallH, dWidth, matStone, bcX, (dBaseY + dTopY) / 2, zc);
-  // Glass window (landscape proportion)
-  box(0.04, dWallH * 0.67, dWidth * 0.77, matGlass,
-      fX + sign * 0.02, dBaseY + dWallH * 0.47, zc);
-  // Sill
-  box(0.07, 0.09, dWidth * 0.80, matStoneShade,
-      fX + sign * 0.025, dBaseY + dWallH * 0.16, zc);
-  // Lintel
-  box(0.07, 0.09, dWidth * 0.80, matStoneShade,
-      fX + sign * 0.025, dTopY - 0.09, zc);
-  // Left cheek
-  box(dDepth + 0.04, dWallH, 0.07, matStone,
-      bcX, (dBaseY + dTopY) / 2, zc - dWidth / 2 - 0.035);
+  // Tall glass panel straddling the eave/cornice line
+  box(0.05, dGlassH * 0.88, dWidth * 0.78, matGlass,
+      fX + sign * 0.02, dGlassBaseY + dGlassH * 0.46, zc);
+  // Sill at glass bottom (below cornice)
+  box(0.08, 0.10, dWidth * 0.85, matStoneShade,
+      fX + sign * 0.03, dGlassBaseY + 0.07, zc);
+  // Lintel at glass top (inside dormer)
+  box(0.08, 0.10, dWidth * 0.85, matStoneShade,
+      fX + sign * 0.03, dWallTopY - 0.08, zc);
+  // Left cheek — full height from below eave to dormer top
+  box(dDepth + 0.04, dGlassH, 0.07, matStone,
+      bcX, (dGlassBaseY + dWallTopY) / 2, zc - dWidth / 2 - 0.035);
   // Right cheek
-  box(dDepth + 0.04, dWallH, 0.07, matStone,
-      bcX, (dBaseY + dTopY) / 2, zc + dWidth / 2 + 0.035);
-  // Gable roof panels + front triangle, winding differs per side
+  box(dDepth + 0.04, dGlassH, 0.07, matStone,
+      bcX, (dGlassBaseY + dWallTopY) / 2, zc + dWidth / 2 + 0.035);
+  // Gable roof panels (above dWallTopY)
   if (sign > 0) {
-    hipQuad([fX, dTopY, zc - dGW], [bX, dTopY, zc - dGW], [bX, dPeakY, zc], [fX, dPeakY, zc], matSeam);
-    hipQuad([fX, dTopY, zc + dGW], [fX, dPeakY, zc], [bX, dPeakY, zc], [bX, dTopY, zc + dGW], matSeam);
-    tri(new THREE.Vector3(fX, dTopY, zc + dGW - 0.06),
-        new THREE.Vector3(fX, dTopY, zc - dGW + 0.06),
+    hipQuad([fX, dWallTopY, zc-dGW], [bX, dWallTopY, zc-dGW], [bX, dPeakY, zc], [fX, dPeakY, zc], matSeam);
+    hipQuad([fX, dWallTopY, zc+dGW], [fX, dPeakY, zc], [bX, dPeakY, zc], [bX, dWallTopY, zc+dGW], matSeam);
+    tri(new THREE.Vector3(fX, dWallTopY, zc+dGW-0.06),
+        new THREE.Vector3(fX, dWallTopY, zc-dGW+0.06),
         new THREE.Vector3(fX, dPeakY, zc), matStone);
   } else {
-    hipQuad([fX, dPeakY, zc], [bX, dPeakY, zc], [bX, dTopY, zc - dGW], [fX, dTopY, zc - dGW], matSeam);
-    hipQuad([bX, dTopY, zc + dGW], [bX, dPeakY, zc], [fX, dPeakY, zc], [fX, dTopY, zc + dGW], matSeam);
-    tri(new THREE.Vector3(fX, dTopY, zc - dGW + 0.06),
-        new THREE.Vector3(fX, dTopY, zc + dGW - 0.06),
+    hipQuad([fX, dPeakY, zc], [bX, dPeakY, zc], [bX, dWallTopY, zc-dGW], [fX, dWallTopY, zc-dGW], matSeam);
+    hipQuad([bX, dWallTopY, zc+dGW], [bX, dPeakY, zc], [fX, dPeakY, zc], [fX, dWallTopY, zc+dGW], matSeam);
+    tri(new THREE.Vector3(fX, dWallTopY, zc-dGW+0.06),
+        new THREE.Vector3(fX, dWallTopY, zc+dGW-0.06),
         new THREE.Vector3(fX, dPeakY, zc), matStone);
   }
   // Ridge cap
