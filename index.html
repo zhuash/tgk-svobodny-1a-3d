@@ -364,6 +364,7 @@ const matSeam = new THREE.MeshStandardMaterial({
   normalMap: seamTex.normalMap, normalScale: new THREE.Vector2(1.2, 1.2),
   roughnessMap: seamTex.roughnessMap, roughness: 0.55,
   metalness: 0.55, envMapIntensity: 1.1,
+  side: THREE.DoubleSide,
 });
 
 const matRoof = new THREE.MeshStandardMaterial({
@@ -539,6 +540,9 @@ const dGW         = dWidth / 2 + 0.10;          // gable half-width with overhan
 const dFrontX = hHW + 0.45;             // 9.45
 const dBodyXC = dFrontX - dDepth / 2;   // 9.225
 const dBackX  = dFrontX - dDepth;       // 9.0 (flush with facade wall face)
+// Main slope X at dormer-roof heights (slope: x = hHW - (y-yEv)*(hHW/(yRd-yEv)))
+const dSlXBase = hHW - (dWallTopY - yEv) * (hHW / (yRd - yEv));  // 6.5 at y=8.4
+const dSlXPeak = hHW - (dPeakY    - yEv) * (hHW / (yRd - yEv));  // 5.5 at y=8.8
 
 function buildDormer(sign, zc) {
   const fX  = sign * dFrontX;
@@ -559,22 +563,32 @@ function buildDormer(sign, zc) {
   // Right cheek
   box(dDepth + 0.04, dGlassH, 0.07, matStone,
       bcX, (dGlassBaseY + dWallTopY) / 2, zc + dWidth / 2 + 0.035);
-  // Gable roof panels (above dWallTopY)
+  // Extended dormer roof panels — run back from gable peak to main slope intersection
+  const sXb = sign * dSlXBase;   // slope x at y=dWallTopY (±6.5)
+  const sXp = sign * dSlXPeak;   // slope x at y=dPeakY    (±5.5)
   if (sign > 0) {
-    hipQuad([fX, dWallTopY, zc-dGW], [bX, dWallTopY, zc-dGW], [bX, dPeakY, zc], [fX, dPeakY, zc], matSeam);
-    hipQuad([fX, dWallTopY, zc+dGW], [fX, dPeakY, zc], [bX, dPeakY, zc], [bX, dWallTopY, zc+dGW], matSeam);
+    // Left panel: front-eave → slope-eave → slope-ridge → front-ridge
+    hipQuad([fX, dWallTopY, zc-dGW], [sXb, dWallTopY, zc-dGW], [sXp, dPeakY, zc], [fX, dPeakY, zc], matSeam);
+    // Right panel
+    hipQuad([fX, dPeakY, zc], [sXp, dPeakY, zc], [sXb, dWallTopY, zc+dGW], [fX, dWallTopY, zc+dGW], matSeam);
+    // Front gable triangle
     tri(new THREE.Vector3(fX, dWallTopY, zc+dGW-0.06),
         new THREE.Vector3(fX, dWallTopY, zc-dGW+0.06),
         new THREE.Vector3(fX, dPeakY, zc), matStone);
   } else {
-    hipQuad([fX, dPeakY, zc], [bX, dPeakY, zc], [bX, dWallTopY, zc-dGW], [fX, dWallTopY, zc-dGW], matSeam);
-    hipQuad([bX, dWallTopY, zc+dGW], [bX, dPeakY, zc], [fX, dPeakY, zc], [fX, dWallTopY, zc+dGW], matSeam);
+    // Left panel (−X)
+    hipQuad([fX, dPeakY, zc], [sXp, dPeakY, zc], [sXb, dWallTopY, zc-dGW], [fX, dWallTopY, zc-dGW], matSeam);
+    // Right panel (−X)
+    hipQuad([fX, dWallTopY, zc+dGW], [sXb, dWallTopY, zc+dGW], [sXp, dPeakY, zc], [fX, dPeakY, zc], matSeam);
+    // Front gable triangle
     tri(new THREE.Vector3(fX, dWallTopY, zc-dGW+0.06),
         new THREE.Vector3(fX, dWallTopY, zc+dGW-0.06),
         new THREE.Vector3(fX, dPeakY, zc), matStone);
   }
-  // Ridge cap
-  box(dDepth + 0.10, 0.12, 0.12, matRoof, bcX, dPeakY + 0.04, zc);
+  // Ridge from gable peak back to slope intersection
+  const ridgeMidX = sign * (dFrontX + dSlXPeak) / 2;
+  const ridgeLen  = dFrontX - dSlXPeak;  // ≈ 3.95 m
+  box(ridgeLen, 0.10, 0.10, matRoof, ridgeMidX, dPeakY + 0.04, zc);
 }
 
 for (const zc of bayLong.centers) {
