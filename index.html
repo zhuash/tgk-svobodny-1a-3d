@@ -458,15 +458,33 @@ const WIN_2F_T = WIN_2F_B + WIN_H;    // 5.70
 
 for (const key of ['PX', 'NX', 'PZ', 'NZ']) {
   const f = FACADES[key];
-  const { centers } = baysFor(f);
+  const { centers, step } = baysFor(f);
 
-  // 1F windows — same module as 2F, centered on bay axis
+  // Rusticated base band — raised plinth course on lower 1F wall
+  onFacade(f, 0, PLINTH + 0.38, f.span, 0.76, 0.0, 0.07, matStoneShade);
+
+  // 1F windows
   for (const c of centers) window2(f, c, WIN_1F_B, WIN_1F_T, WIN_W);
 
-  // inter-floor belt course
-  onFacade(f, 0, Y_F2 - 0.15, f.span - 0.2, 0.30, 0.0, 0.06, matStoneShade);
+  // Classical pilasters / lesenes — between bays, running full height 1F+2F
+  const pilW   = 0.36;
+  const pilProj = 0.10;
+  for (let i = 0; i <= centers.length; i++) {
+    const pc = (i === 0) ? centers[0] - step / 2
+             : (i === centers.length) ? centers[centers.length - 1] + step / 2
+             : (centers[i - 1] + centers[i]) / 2;
+    // Full-height shaft from ground to Y_MAN
+    onFacade(f, pc, Y_MAN / 2, pilW, Y_MAN, 0.0, pilProj, matStone);
+    // Pilaster capital at belt-cornice level (slightly wider/deeper)
+    onFacade(f, pc, Y_F2 - 0.02, pilW + 0.08, 0.26, 0.0, pilProj + 0.05, matStoneShade);
+    // Pilaster base cap at plinth top
+    onFacade(f, pc, PLINTH + 0.06, pilW + 0.06, 0.18, 0.0, pilProj + 0.04, matStoneShade);
+  }
 
-  // 2F windows — same module, same bay axis → fully coaxial
+  // Belt / string cornice between floors — prominent projection
+  onFacade(f, 0, Y_F2 - 0.15, f.span, 0.30, 0.0, 0.14, matStoneShade);
+
+  // 2F windows — coaxial with 1F
   for (const c of centers) window2(f, c, WIN_2F_B, WIN_2F_T, WIN_W);
 
 }
