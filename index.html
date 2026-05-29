@@ -35,7 +35,7 @@
 <div id="hud">
   <div><b>ТГК «Свободный 1а»</b> — массинг с окружением</div>
   <div class="dim">Footprint 18 × 34 м · высота 11 м</div>
-  <div class="dim">1 эт 3.3 · 2 эт 3.3 · мансарда 4.4 м</div>
+  <div class="dim">1 эт 3.0 · 2 эт 3.0 · вальмовая кровля</div>
   <div class="dim">мышь: вращать · колесо: зум</div>
 </div>
 <canvas id="app"></canvas>
@@ -55,14 +55,13 @@ import { FXAAShader }       from 'three/addons/shaders/FXAAShader.js';
 // HARD DIMENSIONS (meters) — DO NOT CHANGE
 // ─────────────────────────────────────────────────────────────────────────
 const W = 18, L = 34;
-const H_F1 = 3.3, H_F2 = 3.3, H_MAN = 4.4;
-const H_TOTAL = H_F1 + H_F2 + H_MAN;   // = 11.0
-const Y_F1 = 0, Y_F2 = H_F1, Y_MAN = H_F1 + H_F2, Y_TOP = H_TOTAL;
+const H_F1 = 3.0, H_F2 = 3.0;
+const H_TOTAL = 11.0;                   // 1эт 3.0 + 2эт 3.0 + мансарда в скатах
+const Y_F1 = 0, Y_F2 = H_F1, Y_MAN = H_F1 + H_F2, Y_RIDGE = H_TOTAL;
 const PLINTH = 0.55;
 const WALL_FACE_X = W / 2, WALL_FACE_Z = L / 2;
 const SILL = 0.60;
-const INSET = 1.35;
-const SLOPE_TOP_Y = H_TOTAL - 0.5;     // = 10.5
+const RIDGE_HALF_Z = L / 2 - W / 2;    // = 8.0  (45° hip corners)
 
 // ═════════════════════════════════════════════════════════════════════════
 // PROCEDURAL TEXTURES
@@ -410,10 +409,6 @@ function boxAxis(f, nC, uC, yC, nS, uS, yS, mat) {
   return (f.axis === 'x') ? box(nS, yS, uS, mat, nC, yC, uC)
                           : box(uS, yS, nS, mat, uC, yC, nC);
 }
-function slopeN(f, y) {
-  const fr = Math.max(0, Math.min(1, (y - Y_MAN) / (SLOPE_TOP_Y - Y_MAN)));
-  return f.plane - f.sign * INSET * fr;
-}
 function tri(a, b, c, mat) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
@@ -469,60 +464,79 @@ for (const key of ['PX', 'NX', 'PZ', 'NZ']) {
   const w2b = Y_F2 + SILL, w2t = Y_MAN - 0.30, w2W = step * 0.34;
   for (const c of centers) window2(f, c, w2b, w2t, w2W);
 
-  const dW = step * 0.50;
-  const yb = Y_MAN + 0.40, yt = Y_MAN + 2.05;
-  const front = f.plane - f.sign * 0.20;
-  const sTop = slopeN(f, yt);
-  for (const c of centers) {
-    for (const s of [-1, 1]) {
-      const u = c + s * dW / 2;
-      tri(mapW(f, front, u, yt), mapW(f, front, u, yb), mapW(f, sTop, u, yt), matSeam);
-    }
-    boxAxis(f, (front + sTop) / 2, c, yt + 0.09, Math.abs(front - sTop) + 0.05, dW + 0.18, 0.18, matRoof);
-    window2(f, c, Y_MAN + SILL + 0.20, yt - 0.18, dW - 0.30, -0.20);
-  }
 }
 
 // Карниз
 box(W + 0.7, 0.45, L + 0.7, matStoneShade, 0, Y_MAN - 0.02, 0);
 
-// ─── МАНСАРДА ───
-const slopeTopY = SLOPE_TOP_Y;
-const halfWb = W / 2, halfLb = L / 2;
-const halfWt = W / 2 - INSET, halfLt = L / 2 - INSET;
-
-function slope(b0, b1, t1, t0) {
+// ─── ВАЛЬМОВАЯ КРОВЛЯ ───
+// Eave at Y_MAN=6.0 · Ridge at Y_RIDGE=11.0 · Hip corners 45° → RIDGE_HALF_Z=8
+function hipQuad(v0, v1, v2, v3, mat) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
-    b0[0], b0[1], b0[2],  b1[0], b1[1], b1[2],  t1[0], t1[1], t1[2],
-    b0[0], b0[1], b0[2],  t1[0], t1[1], t1[2],  t0[0], t0[1], t0[2],
+    v0[0],v0[1],v0[2], v1[0],v1[1],v1[2], v2[0],v2[1],v2[2],
+    v0[0],v0[1],v0[2], v2[0],v2[1],v2[2], v3[0],v3[1],v3[2],
   ]), 3));
-  const wlen = Math.hypot(b1[0] - b0[0], b1[2] - b0[2]);
-  const hlen = Math.hypot(b1[0] * 0 + (t0[0] - b0[0]), (t0[1] - b0[1]), (t0[2] - b0[2]));
-  g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array([
-    0, 0,  wlen, 0,  wlen, hlen,
-    0, 0,  wlen, hlen, 0, hlen
-  ]), 2));
   g.computeVertexNormals();
-  const m = new THREE.Mesh(g, matSeam);
-  m.castShadow = true; m.receiveShadow = true;
-  root.add(m);
+  const m = new THREE.Mesh(g, mat); m.castShadow = true; m.receiveShadow = true;
+  root.add(m); return m;
 }
-const ybM = Y_MAN, ytM = slopeTopY;
-slope([ halfWb,ybM,-halfLb],[ halfWb,ybM, halfLb],[ halfWt,ytM, halfLt],[ halfWt,ytM,-halfLt]);
-slope([-halfWb,ybM, halfLb],[-halfWb,ybM,-halfLb],[-halfWt,ytM,-halfLt],[-halfWt,ytM, halfLt]);
-slope([ halfWb,ybM, halfLb],[-halfWb,ybM, halfLb],[-halfWt,ytM, halfLt],[ halfWt,ytM, halfLt]);
-slope([-halfWb,ybM,-halfLb],[ halfWb,ybM,-halfLb],[ halfWt,ytM,-halfLt],[-halfWt,ytM,-halfLt]);
+function hipTri(v0, v1, v2, mat) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+    v0[0],v0[1],v0[2], v1[0],v1[1],v1[2], v2[0],v2[1],v2[2],
+  ]), 3));
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, mat); m.castShadow = true; m.receiveShadow = true;
+  root.add(m); return m;
+}
 
-box(2 * halfWt + 0.05, 0.12, 2 * halfLt + 0.05, matRoof, 0, slopeTopY, 0);
+const hHW = W / 2, hHL = L / 2, hRz = RIDGE_HALF_Z;
+const yEv = Y_MAN, yRd = Y_RIDGE;
 
-const paraH = Y_TOP - slopeTopY;
-const pcY = slopeTopY + paraH / 2;
-const pT = 0.32;
-box(2 * halfWt + 2 * pT, paraH, pT, matParapet, 0, pcY,  halfLt);
-box(2 * halfWt + 2 * pT, paraH, pT, matParapet, 0, pcY, -halfLt);
-box(pT, paraH, 2 * halfLt + 2 * pT, matParapet,  halfWt, pcY, 0);
-box(pT, paraH, 2 * halfLt + 2 * pT, matParapet, -halfWt, pcY, 0);
+// Eave corners
+const cFL = [+hHW, yEv, -hHL];  // front-left  (+X,−Z)
+const cFR = [+hHW, yEv, +hHL];  // front-right (+X,+Z)
+const cBR = [-hHW, yEv, +hHL];  // back-right  (−X,+Z)
+const cBL = [-hHW, yEv, -hHL];  // back-left   (−X,−Z)
+// Ridge ends at x=0
+const rL  = [0, yRd, -hRz];
+const rR  = [0, yRd, +hRz];
+
+// Long slope +X — CCW for +X outward normal
+hipQuad(cFL, rL, rR, cFR, matSeam);
+// Long slope −X — CCW for −X outward normal
+hipQuad(cBR, rR, rL, cBL, matSeam);
+// Hip slope +Z — CCW for +Z outward normal
+hipTri(cBR, cFR, rR, matSeam);
+// Hip slope −Z — CCW for −Z outward normal
+hipTri(cBL, rL, cFL, matSeam);
+
+// Ridge cap beam
+box(0.22, 0.16, 2 * hRz + 0.20, matRoof, 0, yRd - 0.08, 0);
+
+// Dormers in long slopes, placed at bay centres within the ridge span
+const dYBase = yEv + 1.5;                // 7.5
+const dYTop  = dYBase + 1.80;            // 9.3
+const dYCen  = (dYBase + dYTop) / 2;
+// x of slope surface at dYBase (slope runs from hHW=9 down to 0 over rise 5)
+const dXSlope = hHW - (dYBase - yEv) * hHW / (yRd - yEv);  // 6.3
+const dDepth  = 0.70;
+const dXCen   = dXSlope - dDepth * 0.15;
+const dWidth  = 1.20;
+const dHeight = dYTop - dYBase;
+
+for (const zc of bayLong.centers) {
+  if (Math.abs(zc) >= hRz) continue;   // skip bays beyond ridge end
+  // +X side
+  box(dDepth, dHeight, dWidth, matStone,       dXCen,         dYCen,           zc);
+  box(dDepth + 0.12, 0.18, dWidth + 0.10, matRoof, dXCen,  dYTop + 0.09,    zc);
+  box(0.05, dHeight * 0.52, dWidth * 0.55, matGlass, dXCen + dDepth / 2, dYBase + dHeight * 0.44, zc);
+  // −X mirror
+  box(dDepth, dHeight, dWidth, matStone,      -dXCen,         dYCen,           zc);
+  box(dDepth + 0.12, 0.18, dWidth + 0.10, matRoof,-dXCen,  dYTop + 0.09,    zc);
+  box(0.05, dHeight * 0.52, dWidth * 0.55, matGlass,-(dXCen + dDepth / 2), dYBase + dHeight * 0.44, zc);
+}
 
 // ═════════════════════════════════════════════════════════════════════════
 // ENVIRONMENT GEOMETRY
