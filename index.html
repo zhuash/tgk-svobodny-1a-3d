@@ -522,27 +522,66 @@ hipTri(cBL, rL, cFL, matSeam);
 // Ridge cap beam
 box(0.22, 0.16, 2 * hRz + 0.20, matRoof, 0, yRd - 0.08, 0);
 
-// Dormers in long slopes, placed at bay centres within the ridge span
-const dYBase = yEv + 1.5;                // 8.9 (yEv=7.4)
-const dYTop  = dYBase + 1.80;            // 10.7
-const dYCen  = (dYBase + dYTop) / 2;
-// x of slope surface at dYBase (slope runs from hHW=9 to 0 over rise 3.6 m)
-const dXSlope = hHW - (dYBase - yEv) * hHW / (yRd - yEv);  // ≈5.25
-const dDepth  = 0.70;
-const dXCen   = dXSlope - dDepth * 0.15;
-const dWidth  = 1.20;
-const dHeight = dYTop - dYBase;
+// ─── DORMERS: proper мансардные окна with gable cap ─────────────────────
+// Wider (1.6 m body), shorter wall (0.85 m) + 0.38 m gable — reads as window not chimney
+const dWallH  = 0.85;
+const dWidth  = 1.60;
+const dDepth  = 0.55;
+const dBaseY  = Y_EAVE + 0.30;           // 7.70 — near eave
+const dTopY   = dBaseY + dWallH;          // 8.55
+const dGableH = 0.38;
+const dPeakY  = dTopY + dGableH;          // 8.93
+const dGW     = dWidth / 2 + 0.08;       // 0.88 — gable half-width with overhang
+
+// Slope X at dormer base: x = hHW − ΔY * (hHW / (Y_RIDGE − Y_EAVE))
+const dSlX    = hHW - (dBaseY - Y_EAVE) * (hHW / (Y_RIDGE - Y_EAVE));  // 8.25
+const dFrontX = dSlX + 0.15;             // 8.40
+const dBodyXC = dFrontX - dDepth / 2;    // 8.125
+const dBackX  = dFrontX - dDepth;        // 7.85
+
+function buildDormer(sign, zc) {
+  const fX  = sign * dFrontX;
+  const bX  = sign * dBackX;
+  const bcX = sign * dBodyXC;
+  // Front wall body
+  box(dDepth, dWallH, dWidth, matStone, bcX, (dBaseY + dTopY) / 2, zc);
+  // Glass window (landscape proportion)
+  box(0.04, dWallH * 0.67, dWidth * 0.77, matGlass,
+      fX + sign * 0.02, dBaseY + dWallH * 0.47, zc);
+  // Sill
+  box(0.07, 0.09, dWidth * 0.80, matStoneShade,
+      fX + sign * 0.025, dBaseY + dWallH * 0.16, zc);
+  // Lintel
+  box(0.07, 0.09, dWidth * 0.80, matStoneShade,
+      fX + sign * 0.025, dTopY - 0.09, zc);
+  // Left cheek
+  box(dDepth + 0.04, dWallH, 0.07, matStone,
+      bcX, (dBaseY + dTopY) / 2, zc - dWidth / 2 - 0.035);
+  // Right cheek
+  box(dDepth + 0.04, dWallH, 0.07, matStone,
+      bcX, (dBaseY + dTopY) / 2, zc + dWidth / 2 + 0.035);
+  // Gable roof panels + front triangle, winding differs per side
+  if (sign > 0) {
+    hipQuad([fX, dTopY, zc - dGW], [bX, dTopY, zc - dGW], [bX, dPeakY, zc], [fX, dPeakY, zc], matSeam);
+    hipQuad([fX, dTopY, zc + dGW], [fX, dPeakY, zc], [bX, dPeakY, zc], [bX, dTopY, zc + dGW], matSeam);
+    tri(new THREE.Vector3(fX, dTopY, zc + dGW - 0.06),
+        new THREE.Vector3(fX, dTopY, zc - dGW + 0.06),
+        new THREE.Vector3(fX, dPeakY, zc), matStone);
+  } else {
+    hipQuad([fX, dPeakY, zc], [bX, dPeakY, zc], [bX, dTopY, zc - dGW], [fX, dTopY, zc - dGW], matSeam);
+    hipQuad([bX, dTopY, zc + dGW], [bX, dPeakY, zc], [fX, dPeakY, zc], [fX, dTopY, zc + dGW], matSeam);
+    tri(new THREE.Vector3(fX, dTopY, zc - dGW + 0.06),
+        new THREE.Vector3(fX, dTopY, zc + dGW - 0.06),
+        new THREE.Vector3(fX, dPeakY, zc), matStone);
+  }
+  // Ridge cap
+  box(dDepth + 0.10, 0.12, 0.12, matRoof, bcX, dPeakY + 0.04, zc);
+}
 
 for (const zc of bayLong.centers) {
-  if (Math.abs(zc) >= hRz) continue;   // skip bays beyond ridge end
-  // +X side
-  box(dDepth, dHeight, dWidth, matStone,       dXCen,         dYCen,           zc);
-  box(dDepth + 0.12, 0.18, dWidth + 0.10, matRoof, dXCen,  dYTop + 0.09,    zc);
-  box(0.05, dHeight * 0.52, dWidth * 0.55, matGlass, dXCen + dDepth / 2, dYBase + dHeight * 0.44, zc);
-  // −X mirror
-  box(dDepth, dHeight, dWidth, matStone,      -dXCen,         dYCen,           zc);
-  box(dDepth + 0.12, 0.18, dWidth + 0.10, matRoof,-dXCen,  dYTop + 0.09,    zc);
-  box(0.05, dHeight * 0.52, dWidth * 0.55, matGlass,-(dXCen + dDepth / 2), dYBase + dHeight * 0.44, zc);
+  if (Math.abs(zc) >= hRz) continue;
+  buildDormer(+1, zc);
+  buildDormer(-1, zc);
 }
 
 // ═════════════════════════════════════════════════════════════════════════
