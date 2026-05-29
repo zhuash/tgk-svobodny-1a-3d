@@ -439,8 +439,8 @@ function window2(f, uPos, yb, yt, wWidth, base = 0) {
   onFacade(f, uPos + wWidth / 2 + fr / 2, yC, fr, ySize, base, proj, matStone);
 }
 
-const bayLong  = bayCenters(L, 10, 1.7);
-const bayShort = bayCenters(W,  5, 1.6);
+const bayLong  = bayCenters(L, 6, 1.7);   // 6 bays → coaxial with 6 dormers per slope
+const bayShort = bayCenters(W, 5, 1.6);
 function baysFor(f) { return (f.axis === 'x') ? bayLong : bayShort; }
 
 // SOLID CORE
@@ -448,23 +448,26 @@ box(W, H_F1 + H_F2, L, matStone, 0, (Y_F1 + Y_MAN) / 2, 0);
 box(W - 0.7, H_F1 + H_F2 - 0.2, L - 0.7, matCore, 0, (Y_F1 + Y_MAN) / 2, 0);
 box(W + 0.3, PLINTH, L + 0.3, matStoneShade, 0, PLINTH / 2, 0);
 
-// PER-FACADE ARTICULATION
+// PER-FACADE ARTICULATION — uniform window module, coaxial 1F / 2F / dormer
+const WIN_W = 1.60;                    // same width on all floors (matches dormer)
+const WIN_H = 2.10;                    // same height on all floors
+const WIN_1F_B = PLINTH;               // 0.55 — sill at plinth
+const WIN_1F_T = PLINTH + WIN_H;       // 2.65
+const WIN_2F_B = Y_F2 + SILL;         // 3.60 — sill above floor
+const WIN_2F_T = WIN_2F_B + WIN_H;    // 5.70
+
 for (const key of ['PX', 'NX', 'PZ', 'NZ']) {
   const f = FACADES[key];
-  const { centers, step } = baysFor(f);
-  const vitB = PLINTH, vitT = Y_F2 - 0.30, vitW = step * 0.66;
-  for (const c of centers) onFacade(f, c, (vitB + vitT) / 2, vitW, vitT - vitB, 0.0, 0.05, matGlass);
-  const pilW = 0.34;
-  for (let i = 0; i <= centers.length; i++) {
-    const pc = (i === 0) ? centers[0] - step / 2
-            : (i === centers.length) ? centers[centers.length - 1] + step / 2
-            : (centers[i - 1] + centers[i]) / 2;
-    onFacade(f, pc, (vitB + vitT) / 2, pilW, vitT - vitB + 0.1, 0.0, 0.10, matStone);
-  }
+  const { centers } = baysFor(f);
+
+  // 1F windows — same module as 2F, centered on bay axis
+  for (const c of centers) window2(f, c, WIN_1F_B, WIN_1F_T, WIN_W);
+
+  // inter-floor belt course
   onFacade(f, 0, Y_F2 - 0.15, f.span - 0.2, 0.30, 0.0, 0.06, matStoneShade);
 
-  const w2b = Y_F2 + SILL, w2t = Y_MAN - 0.30, w2W = step * 0.34;
-  for (const c of centers) window2(f, c, w2b, w2t, w2W);
+  // 2F windows — same module, same bay axis → fully coaxial
+  for (const c of centers) window2(f, c, WIN_2F_B, WIN_2F_T, WIN_W);
 
 }
 
