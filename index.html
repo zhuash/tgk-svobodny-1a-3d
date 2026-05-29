@@ -35,7 +35,7 @@
 <div id="hud">
   <div><b>ТГК «Свободный 1а»</b> — массинг с окружением</div>
   <div class="dim">Footprint 18 × 34 м · высота 11 м</div>
-  <div class="dim">1 эт 3.0 · 2 эт 3.0 · вальмовая кровля</div>
+  <div class="dim">9 окон 1+2 эт · 7 слуховых окон кровли · v9</div>
   <div class="dim">мышь: вращать · колесо: зум</div>
 </div>
 <canvas id="app"></canvas>
@@ -439,7 +439,7 @@ function window2(f, uPos, yb, yt, wWidth, base = 0) {
   onFacade(f, uPos + wWidth / 2 + fr / 2, yC, fr, ySize, base, proj, matStone);
 }
 
-const bayLong  = bayCenters(L, 6, 1.7);   // 6 bays → coaxial with 6 dormers per slope
+const bayLong  = bayCenters(L, 9, 1.5);   // 9 bays per long facade (step≈3.44 m)
 const bayShort = bayCenters(W, 5, 1.6);
 function baysFor(f) { return (f.axis === 'x') ? bayLong : bayShort; }
 
@@ -612,8 +612,9 @@ function buildDormer(sign, zc) {
   box(ridgeLen, 0.10, 0.10, matRoof, ridgeMidX, dPeakY + 0.04, zc);
 }
 
-for (const zc of bayLong.centers) {
-  if (Math.abs(zc) >= hRz) continue;
+// 7 dormers per long slope: centered, step 4 m, outermost at ±12 m (2 m inside ridge end ±14)
+const dormerCentersZ = [-12, -8, -4, 0, 4, 8, 12];
+for (const zc of dormerCentersZ) {
   buildDormer(+1, zc);
   buildDormer(-1, zc);
 }
