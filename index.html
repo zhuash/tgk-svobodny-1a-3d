@@ -35,7 +35,8 @@
 <div id="hud">
   <div><b>ТГК «Свободный 1а»</b> — массинг с окружением</div>
   <div class="dim">Footprint 18 × 34 м · высота 11 м</div>
-  <div class="dim">9 ок. длин. · 4 ок. торц. · 9 слух. длин. + 2 слух. торц. · v20</div>
+  <div class="dim">9 ок. длин. · 4 ок. торц. · 9 слух. длин. + 2 слух. торц. · v21</div>
+  <div class="dim">р. Тьмака — запад+юг · мост+дорога — юго-восток</div>
   <div class="dim">мышь: вращать · колесо: зум</div>
 </div>
 <canvas id="app"></canvas>
@@ -778,24 +779,29 @@ envBox(0.25, 0.20, 62, matCurb, 22.25, 0.10, 0);
 
 // ─ Neighbor buildings removed (client request: clean single-building scene) ─
 
-// ─ -X side: small sidewalk + embankment parapet ───────────────────────────
-envBox(0.30, 0.22, 48, matCurb, -13.0, 0.11, 0);   // curb
+// ─ -X side: sidewalk + west embankment parapet (river Tmaka west bank) ───
+envBox(0.30, 0.22, 46, matCurb, -13.0, 0.11, -1);  // curb, z=[-24,+22]
 
-// Embankment parapet (stone wall, 1.0m high, 0.5m thick) running in Z direction
-envBox(0.50, 1.05, 56, matParapetStone, -13.5, 0.53, 4);
-// parapet cap
-envBox(0.70, 0.14, 56, matCurb, -13.5, 1.13, 4);
+// Embankment parapet — west bank, runs from z=-24 to z=+22 (stops at SW corner)
+envBox(0.50, 1.05, 46, matParapetStone, -13.5, 0.53, -1);
+envBox(0.70, 0.14, 46, matCurb, -13.5, 1.13, -1);
+// Corner pillar at SW bend of river (west parapet meets south parapet)
+envBox(0.60, 1.05, 0.60, matParapetStone, -13.5, 0.53, 21.5);
+envBox(0.80, 0.14, 0.80, matCurb, -13.5, 1.13, 21.5);
 
-// ─ Water plane beyond embankment ─────────────────────────────────────────
-envBox(80, 0.06, 80, matWater, -55, -0.03, 4, { castShadow: false });
+// ─ River Tmaka — L-shaped: west arm + south arm ───────────────────────────
+// West arm: flows south along -X side (x=[-60,-14], z=[-38,+25])
+envBox(46, 0.06, 63, matWater, -37, -0.03, -6.5, { castShadow: false });
+// South arm: bends eastward along +Z/south side (x=[-60,+30], z=[+22,+65])
+envBox(90, 0.06, 43, matWater, -15, -0.03, 43.5, { castShadow: false });
 
-// ─ +Z end: short sidewalk and embankment extension ────────────────────────
-// Sidewalk in front of +Z face: z=[17.15, 21], x=[-16, 16]
-envBox(0.30, 0.22, 34, matCurb, 0, 0.11, 21.15, { rotY: Math.PI / 2 });  // curb
+// ─ +Z end: sidewalk + south embankment parapet (river Tmaka south bank) ──
+// Curb running in X direction: from x=-21 to x=+17 (38 m with rotY=90°)
+envBox(0.30, 0.22, 38, matCurb, -2, 0.11, 21.15, { rotY: Math.PI / 2 });
 
-// Embankment parapet extending along +Z side toward river
-envBox(34, 1.05, 0.50, matParapetStone, -4, 0.53, 21.5);
-envBox(34, 0.14, 0.70, matCurb, -4, 1.13, 21.5);
+// South embankment parapet: from x=-21 to x=+17 (stops at bridge approach)
+envBox(38, 1.05, 0.50, matParapetStone, -2, 0.53, 21.5);
+envBox(38, 0.14, 0.70, matCurb, -2, 1.13, 21.5);
 
 // ─ Street lamps along +X sidewalk ─────────────────────────────────────────
 [-15, -5, 5, 15].forEach(z => {
@@ -812,6 +818,27 @@ envBox(34, 0.14, 0.70, matCurb, -4, 1.13, 21.5);
   envBox(1.4, 0.80, 1.4, matParapetStone, x, 0.40, z);
   envSphere(0.75, matGreenPlanter, x, 1.10, z);
 });
+
+// ─ DIAGONAL ROAD + BRIDGE (SE corner, per legend) ─────────────────────────
+// Diagonal road: from junction (x=+17, z=0) on main street → bridge north (x=+24, z=+22)
+// Direction: (+7, 0, +22) → rotY = atan2(7,22) ≈ 0.308 rad; length ≈ 23.1 m
+envBox(7.5, 0.04, 23.1, matAsphalt, 20.5, 0.02, 11, { rotY: 0.308, castShadow: false });
+// Lane markings on diagonal road
+envBox(0.18, 0.06, 23.1, matLaneWhite, 20.5, 0.05, 11, { rotY: 0.308, castShadow: false });
+
+// Bridge deck: spans south river arm at x≈+24, z=[+22,+44] (22 m span)
+envBox(9.5, 0.65, 22, matCurb, 24, 0.325, 33);
+// Road surface on bridge
+envBox(7.5, 0.05, 22, matAsphalt, 24, 0.65, 33, { castShadow: false });
+// Bridge side barriers (stone parapets)
+envBox(0.45, 0.85, 22, matParapetStone, 19.5, 0.80, 33);
+envBox(0.45, 0.85, 22, matParapetStone, 28.55, 0.80, 33);
+// North abutment (ramp from parapet to bridge deck)
+envBox(9.5, 0.65, 2.5, matParapetStone, 24, 0.325, 20.75);
+// South abutment
+envBox(9.5, 0.65, 2.5, matParapetStone, 24, 0.325, 45.25);
+// Road south of bridge continuing beyond river
+envBox(8.0, 0.04, 16, matAsphalt, 24, 0.02, 56, { castShadow: false });
 
 // ═════════════════════════════════════════════════════════════════════════
 // SCENE / RENDERER
@@ -922,11 +949,11 @@ fillLight.position.set(-30, 12, -20);
 fillLight.castShadow = false;
 scene.add(fillLight);
 
-// ── камера: угловой 3/4 (default) ────────────────────────────────────────
-const camera = new THREE.PerspectiveCamera(42, 16 / 11, 0.1, 2000);
-camera.position.set(44, 5.8, 30);
+// ── камера: вид с юга (N↑ как на легенде — река слева+снизу, мост справа-снизу)
+const camera = new THREE.PerspectiveCamera(50, 16 / 11, 0.1, 2000);
+camera.position.set(5, 55, 80);
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(2, 4.3, 0);
+controls.target.set(0, 3, 12);
 controls.enableDamping = true;
 controls.minDistance = 12;
 controls.maxDistance = 300;
