@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>ТГК «Гранд Авеню» — карта 3D</title>
+<!-- map3d v2.2 2026-06-01 — procedural v21 geometry (no GLB), rect neighbors -->
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #1b2a35; overflow: hidden; font-family: system-ui, -apple-system, sans-serif; }
@@ -394,44 +395,47 @@ bridgeDeck.position.set(65.2,0.15,63.0);bridgeDeck.castShadow=true;bridgeDeck.re
 scene.add(bridgeDeck);
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 2 ПРОСТЫХ ПРЯМОУГОЛЬНЫХ СОСЕДА (E: простые прямоугольники вдоль дороги)
+// 2 ПРЯМОУГОЛЬНЫХ СОСЕДА — 4 этажа (~12м), плоская кровля, окна по этажам
+// Позиция/ориентация по линиям E (e_neighbors_markup.jpg, SCALE=0.150 m/px)
 // ══════════════════════════════════════════════════════════════════════════════
 const matBldg=new THREE.MeshStandardMaterial({color:0xc8bfa8,roughness:0.88});
 const matRoof2=new THREE.MeshStandardMaterial({color:0x7a6c5e,roughness:0.9});
-const matWin=new THREE.MeshStandardMaterial({color:0x2a3d52,roughness:0.05,metalness:0.2});
+const matFloorBand=new THREE.MeshStandardMaterial({color:0xb5a890,roughness:0.9});
 
-function addRectBuilding(cx,cz,bw,bd,wallH,rotY){
-  const g=new THREE.Group();
-  // Main walls
-  const walls=new THREE.Mesh(new THREE.BoxGeometry(bw,wallH,bd),matBldg);
-  walls.position.set(0,wallH/2,0);walls.castShadow=true;walls.receiveShadow=true;g.add(walls);
-  // Flat roof cap
-  const cap=new THREE.Mesh(new THREE.BoxGeometry(bw+0.3,0.3,bd+0.3),matRoof2);
-  cap.position.set(0,wallH+0.15,0);cap.castShadow=true;g.add(cap);
-  // Window grid — 4 floors, windows on long facades (bw side)
-  const floorH=wallH/4, winW=1.1, winH=1.4, winD=0.08, winSpacingZ=3.0;
-  const nWins=Math.floor((bd-2)/winSpacingZ);
-  for(let fl=0;fl<4;fl++){
-    const yC=(fl+0.5)*floorH+0.3;
-    for(let i=0;i<nWins;i++){
-      const zC=-bd/2+1+winSpacingZ*(i+0.5);
-      [+bw/2,-bw/2].forEach(side=>{
-        const win=new THREE.Mesh(new THREE.BoxGeometry(winD,winH,winW),matWin);
-        win.position.set(side+(side>0?winD/2:-winD/2),yC,zC);
-        win.castShadow=false;g.add(win);
-      });
+function addRectBuilding(cx,cz,bL,bW,wallH,rotY){
+  const g=new THREE.Group(),flH=wallH/4;
+  const body=new THREE.Mesh(new THREE.BoxGeometry(bW,wallH,bL),matBldg);
+  body.position.set(0,wallH/2,0);body.castShadow=true;body.receiveShadow=true;g.add(body);
+  for(let f=1;f<4;f++){
+    const band=new THREE.Mesh(new THREE.BoxGeometry(bW+0.05,0.12,bL+0.05),matFloorBand);
+    band.position.set(0,f*flH,0);g.add(band);
+  }
+  const cap=new THREE.Mesh(new THREE.BoxGeometry(bW+0.25,0.35,bL+0.25),matRoof2);
+  cap.position.set(0,wallH+0.175,0);cap.castShadow=true;g.add(cap);
+  const winW=1.15,winH=1.65,sill=0.65;
+  const nL=Math.max(3,Math.round(bL/3.5)),stepL=bL/nL;
+  const nS=Math.max(2,Math.round(bW/3.5)),stepS=bW/nS;
+  for(let f=0;f<4;f++){
+    const yW=f*flH+sill+winH/2;
+    for(let c=0;c<nL;c++){
+      const zp=-bL/2+(c+0.5)*stepL;
+      [-1,1].forEach(s=>{const w=new THREE.Mesh(new THREE.BoxGeometry(0.05,winH,winW),matGlass);w.position.set(s*bW/2,yW,zp);g.add(w);});
+    }
+    for(let c=0;c<nS;c++){
+      const xp=-bW/2+(c+0.5)*stepS;
+      [-1,1].forEach(s=>{const w=new THREE.Mesh(new THREE.BoxGeometry(winW,winH,0.05),matGlass);w.position.set(xp,yW,s*bL/2);g.add(w);});
     }
   }
-  g.position.set(cx,0,cz);g.rotation.y=rotY;scene.add(g);return g;
+  g.rotation.y=rotY;g.position.set(cx,0,cz);scene.add(g);
 }
 
-// N1: склад/жилой блок слева-сверху (вдоль дороги, ориентация TGK)
-// img center approx (515,85) → scene (-7.8, -62.25)
-addRectBuilding(-8, -62, 10, 36, 12, B_ROT_Y);
+// N1: северо-западный блок (верхний-левый бирюзовый контур E)
+// pixel center (497,95) -> scene(-6,-60), 40×10m, 4эт 12м, вдоль дороги rot=1.15 rad
+addRectBuilding(-6,-60, 40,10, 12, 1.15);
 
-// N2: жилой корпус справа-по-центру (горизонтально вдоль E-W дороги)
-// img center approx (880,340) → scene (46.95, -24)
-addRectBuilding(47, -24, 12, 50, 12, Math.PI/2);
+// N2: восточный блок (правый центр, бирюзовый контур E)
+// pixel center (891,363) -> scene(49,-21), 45×14m, 4эт 12м, вдоль дороги rot=1.12 rad
+addRectBuilding(49,-21, 45,14, 12, 1.12);
 
 // ── Green areas ───────────────────────────────────────────────────────────────
 const matGrass=new THREE.MeshStandardMaterial({color:0x6a8050,roughness:1.0});
