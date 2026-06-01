@@ -82,20 +82,23 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // ── Constants derived from satellite image analysis ──────────────────────────
-// Image: 1134×1000 px; building 18×34m fits in ~112×214 px (short × long side)
-// Scale: ~0.159 m/px; plane covers ~180×159m in world units
-const SCALE = 0.159;  // meters per pixel
-const IMG_W = 1134 * SCALE;   // ~180.3m
-const IMG_H = 1000 * SCALE;   // ~159.0m
+// Image: 1134×1000 px
+// Purple contour corners (detected from map_top_purple.jpg):
+//   NW(609,438), NE(805,552), SE(740,644), SW(564,543)
+//   Long side NW→NE: (196,114) px = 34m → SCALE = 34/226.7 = 0.150 m/px
+//   Short side NE→SE: (−65,92) px = 18m (slight diff due to satellite projection)
+const SCALE = 0.150;  // meters per pixel (calibrated from long side of purple contour)
+const IMG_W = 1134 * SCALE;   // ~170.1m
+const IMG_H = 1000 * SCALE;   // ~150.0m
 
-// Building center in scene (image-center at origin):
-//   img_x=678.8 → scene_x = (678.8-567)*0.159 = +17.8m
-//   img_y=542.4 → scene_z = (542.4-500)*0.159 =  +6.7m
-const BX = 17.8, BZ = 6.7;
+// Building center = centroid of 4 contour corners:
+//   img_x=(609+805+740+564)/4=679.5 → scene_x=(679.5-567)*0.150=+16.9m
+//   img_y=(438+552+644+543)/4=544.2 → scene_z=(544.2-500)*0.150=+6.6m
+const BX = 16.9, BZ = 6.6;
 
-// Building rotation: long axis runs from NW(608,440) to NE(804,552) in image
-//   direction (196, 112) → scene (dx=196, dz=112); rotation.y=atan2(196,112)
-const B_ROT_Y = Math.atan2(196, 112);  // ≈1.047 rad ≈ 60°
+// Building rotation: long axis NW(609,438)→NE(805,552), direction=(196,114)
+//   rotation.y = atan2(196,114) = 1.044 rad ≈ 59.8° (from +Z toward +X)
+const B_ROT_Y = Math.atan2(196, 114);  // 1.044 rad ≈ 59.8°
 
 const TERRACOTTA = 0xC1440E;
 
@@ -343,10 +346,7 @@ function addTree(x, z, h, r, ci) {
 const treeData = [
   [-10, -5, 5.5, 2.2, 0], [-12, 5, 6.0, 2.4, 2], [-8, 16, 5.2, 2.1, 4],
   [-10, 27, 5.8, 2.3, 1], [-12, -16, 5.5, 2.2, 3],
-  // Far bank
-  [-65, -20, 5, 2.0, 3], [-60, -8, 4.8, 1.9, 1], [-68, 5, 5.5, 2.3, 4],
-  [-55, -25, 5.2, 2.1, 0], [-55, 15, 4.9, 2.0, 5],
-  [-40, -30, 5.3, 2.2, 2], [-35, -15, 4.8, 2.0, 0],
+  // Far bank trees omitted — the west bank is outside the satellite image extent at this scale
   // Trees behind building
   [10, -20, 5.0, 2.0, 1], [22, -18, 5.2, 2.1, 3], [5, -30, 5.5, 2.3, 5],
   // Near road area
@@ -461,8 +461,8 @@ const CAMERAS = [
   { pos: [BX+55, 8, BZ+65], target: [BX, 4, BZ], fov: 48 },
   // "Угловой 3/4" — bird's eye from SW (river side)
   { pos: [BX-45, 35, BZ-30], target: [BX, 3, BZ], fov: 42 },
-  // "Карта" — straight top-down
-  { pos: [BX, 130, BZ], target: [BX, 0, BZ], fov: 55 },
+  // "Карта" — near-vertical top-down (tiny offset avoids OrbitControls polar singularity)
+  { pos: [BX - 5, 130, BZ - 5], target: [BX, 0, BZ], fov: 55 },
   // "Аэро" — high oblique from NE
   { pos: [BX+70, 65, BZ-55], target: [BX, 0, BZ], fov: 40 },
 ];
