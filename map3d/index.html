@@ -395,47 +395,39 @@ bridgeDeck.position.set(65.2,0.15,63.0);bridgeDeck.castShadow=true;bridgeDeck.re
 scene.add(bridgeDeck);
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 2 ПРЯМОУГОЛЬНЫХ СОСЕДА — 4 этажа (~12м), плоская кровля, окна по этажам
-// Позиция/ориентация по линиям E (e_neighbors_markup.jpg, SCALE=0.150 m/px)
+// 2 Г-ОБРАЗНЫХ СОСЕДА (per E reference markup — teal contours only)
+// Footprints traced from satellite map_top_purple.jpg, SCALE=0.150 m/px
+// No reference image used as scene plane — pure 3D geometry only
 // ══════════════════════════════════════════════════════════════════════════════
 const matBldg=new THREE.MeshStandardMaterial({color:0xc8bfa8,roughness:0.88});
 const matRoof2=new THREE.MeshStandardMaterial({color:0x7a6c5e,roughness:0.9});
-const matFloorBand=new THREE.MeshStandardMaterial({color:0xb5a890,roughness:0.9});
 
-function addRectBuilding(cx,cz,bL,bW,wallH,rotY){
-  const g=new THREE.Group(),flH=wallH/4;
-  const body=new THREE.Mesh(new THREE.BoxGeometry(bW,wallH,bL),matBldg);
-  body.position.set(0,wallH/2,0);body.castShadow=true;body.receiveShadow=true;g.add(body);
-  for(let f=1;f<4;f++){
-    const band=new THREE.Mesh(new THREE.BoxGeometry(bW+0.05,0.12,bL+0.05),matFloorBand);
-    band.position.set(0,f*flH,0);g.add(band);
-  }
-  const cap=new THREE.Mesh(new THREE.BoxGeometry(bW+0.25,0.35,bL+0.25),matRoof2);
-  cap.position.set(0,wallH+0.175,0);cap.castShadow=true;g.add(cap);
-  const winW=1.15,winH=1.65,sill=0.65;
-  const nL=Math.max(3,Math.round(bL/3.5)),stepL=bL/nL;
-  const nS=Math.max(2,Math.round(bW/3.5)),stepS=bW/nS;
-  for(let f=0;f<4;f++){
-    const yW=f*flH+sill+winH/2;
-    for(let c=0;c<nL;c++){
-      const zp=-bL/2+(c+0.5)*stepL;
-      [-1,1].forEach(s=>{const w=new THREE.Mesh(new THREE.BoxGeometry(0.05,winH,winW),matGlass);w.position.set(s*bW/2,yW,zp);g.add(w);});
-    }
-    for(let c=0;c<nS;c++){
-      const xp=-bW/2+(c+0.5)*stepS;
-      [-1,1].forEach(s=>{const w=new THREE.Mesh(new THREE.BoxGeometry(winW,winH,0.05),matGlass);w.position.set(xp,yW,s*bL/2);g.add(w);});
-    }
-  }
-  g.rotation.y=rotY;g.position.set(cx,0,cz);scene.add(g);
+function addLBuilding(cx,cz,arm1,arm2,wallH){
+  const g=new THREE.Group();
+  [arm1,arm2].forEach(({w,d,ox,oz})=>{
+    const walls=new THREE.Mesh(new THREE.BoxGeometry(w,wallH,d),matBldg);
+    walls.position.set(ox,wallH/2,oz);walls.castShadow=true;walls.receiveShadow=true;g.add(walls);
+    const cap=new THREE.Mesh(new THREE.BoxGeometry(w+0.2,0.25,d+0.2),matRoof2);
+    cap.position.set(ox,wallH+0.125,oz);cap.castShadow=true;g.add(cap);
+  });
+  g.position.set(cx,0,cz);scene.add(g);return g;
 }
 
-// N1: северо-западный блок (верхний-левый бирюзовый контур E)
-// pixel center (497,95) -> scene(-6,-60), 40×10m, 4эт 12м, вдоль дороги rot=1.15 rad
-addRectBuilding(-6,-60, 40,10, 12, 1.15);
+// N1: Г-образный склад слева-сверху (верхний-левый бирюзовый контур E)
+// Main body: scene_x=[-25,+11] z=[-75,-54]; SE arm: scene_x=[0,+11] z=[-54,-47]
+// Satellite bright pixels (y=0..16): img_x=[397..640] -> scene_x=[-25.5,+11]
+addLBuilding(-7, -61,
+  {w:36, d:21, ox:0,    oz:-3.5},   // main E-W body: x=[-25,+11] z=[-75,-54]
+  {w:11, d:7,  ox:12.5, oz:10.5},   // SE arm: x=[0,+11] z=[-54,-47]
+  5);
 
-// N2: восточный блок (правый центр, бирюзовый контур E)
-// pixel center (891,363) -> scene(49,-21), 45×14m, 4эт 12м, вдоль дороги rot=1.12 rad
-addRectBuilding(49,-21, 45,14, 12, 1.12);
+// N2: Г-образный корпус справа-по-центру (правый-центр бирюзовый контур E)
+// Main body: scene_x=[24,74] z=[-39,-7]; left ext: scene_x=[17,24] z=[-31,-7]
+// Satellite grey pixels: x_right~1099->scene_x~+74; x_left jumps at z=-31 from ~24 to ~17
+addLBuilding(49, -23,
+  {w:50, d:32, ox:0,     oz:0},     // main body: x=[24,74] z=[-39,-7]
+  {w:7,  d:24, ox:-28.5, oz:4},     // left extension: x=[17,24] z=[-31,-7]
+  7);
 
 // ── Green areas ───────────────────────────────────────────────────────────────
 const matGrass=new THREE.MeshStandardMaterial({color:0x6a8050,roughness:1.0});
