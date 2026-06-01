@@ -3,8 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>ТГК «Гранд Авеню» — карта 3D</title>
-<!-- map3d v2.2 2026-06-01 — procedural v21 geometry (no GLB), rect neighbors -->
+<!-- map3d v2.3 2026-06-01 — procedural v21 geometry, rect neighbors aligned along road -->
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #1b2a35; overflow: hidden; font-family: system-ui, -apple-system, sans-serif; }
@@ -47,7 +50,8 @@
 <div id="label">
   <b>ТГК «Гранд Авеню»</b><br>
   Тверь, пер. Свободный 1а<br>
-  18 × 34 × 11 м · набережная Тьмаки
+  18 × 34 × 11 м · набережная Тьмаки<br>
+  <span style="font-size:10px;opacity:0.75">v2.3 · соседи выровнены вдоль дороги</span>
 </div>
 
 <div id="info">ЛКМ — вращение · ПКМ/средняя — пан · колесо — зум</div>
@@ -395,39 +399,30 @@ bridgeDeck.position.set(65.2,0.15,63.0);bridgeDeck.castShadow=true;bridgeDeck.re
 scene.add(bridgeDeck);
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 2 Г-ОБРАЗНЫХ СОСЕДА (per E reference markup — teal contours only)
-// Footprints traced from satellite map_top_purple.jpg, SCALE=0.150 m/px
-// No reference image used as scene plane — pure 3D geometry only
+// 2 ПРЯМОУГОЛЬНЫХ СОСЕДА — строго вдоль дороги (rotation.y = B_ROT_Y)
+// N1: слева (вид с моста) — 3 этажа, 9 м
+// N2: справа (вид с моста) — 4 этажа жилой, 13 м (выше нашего здания 11 м)
 // ══════════════════════════════════════════════════════════════════════════════
 const matBldg=new THREE.MeshStandardMaterial({color:0xc8bfa8,roughness:0.88});
 const matRoof2=new THREE.MeshStandardMaterial({color:0x7a6c5e,roughness:0.9});
 
-function addLBuilding(cx,cz,arm1,arm2,wallH){
+function addRectBuilding(cx,cz,bw,bd,wallH,rotY){
   const g=new THREE.Group();
-  [arm1,arm2].forEach(({w,d,ox,oz})=>{
-    const walls=new THREE.Mesh(new THREE.BoxGeometry(w,wallH,d),matBldg);
-    walls.position.set(ox,wallH/2,oz);walls.castShadow=true;walls.receiveShadow=true;g.add(walls);
-    const cap=new THREE.Mesh(new THREE.BoxGeometry(w+0.2,0.25,d+0.2),matRoof2);
-    cap.position.set(ox,wallH+0.125,oz);cap.castShadow=true;g.add(cap);
-  });
+  const walls=new THREE.Mesh(new THREE.BoxGeometry(bw,wallH,bd),matBldg);
+  walls.position.set(0,wallH/2,0);walls.castShadow=true;walls.receiveShadow=true;g.add(walls);
+  const cap=new THREE.Mesh(new THREE.BoxGeometry(bw+0.2,0.25,bd+0.2),matRoof2);
+  cap.position.set(0,wallH+0.125,0);cap.castShadow=true;g.add(cap);
+  g.rotation.y=rotY;
   g.position.set(cx,0,cz);scene.add(g);return g;
 }
 
-// N1: Г-образный склад слева-сверху (верхний-левый бирюзовый контур E)
-// Main body: scene_x=[-25,+11] z=[-75,-54]; SE arm: scene_x=[0,+11] z=[-54,-47]
-// Satellite bright pixels (y=0..16): img_x=[397..640] -> scene_x=[-25.5,+11]
-addLBuilding(-7, -61,
-  {w:36, d:21, ox:0,    oz:-3.5},   // main E-W body: x=[-25,+11] z=[-75,-54]
-  {w:11, d:7,  ox:12.5, oz:10.5},   // SE arm: x=[0,+11] z=[-54,-47]
-  5);
+// N1: левый сосед (вид с моста) — промышленный/жилой, 3 этажа 9м
+// bw=10 (поперёк дороги), bd=40 (вдоль дороги), rot=B_ROT_Y
+addRectBuilding(-6,-60, 10,40, 9, B_ROT_Y);
 
-// N2: Г-образный корпус справа-по-центру (правый-центр бирюзовый контур E)
-// Main body: scene_x=[24,74] z=[-39,-7]; left ext: scene_x=[17,24] z=[-31,-7]
-// Satellite grey pixels: x_right~1099->scene_x~+74; x_left jumps at z=-31 from ~24 to ~17
-addLBuilding(49, -23,
-  {w:50, d:32, ox:0,     oz:0},     // main body: x=[24,74] z=[-39,-7]
-  {w:7,  d:24, ox:-28.5, oz:4},     // left extension: x=[17,24] z=[-31,-7]
-  7);
+// N2: правый сосед (вид с моста) — 4-этажный жилой, 13м > нашего здания (11м)
+// bw=14 (поперёк дороги), bd=45 (вдоль дороги), rot=B_ROT_Y
+addRectBuilding(49,-21, 14,45, 13, B_ROT_Y);
 
 // ── Green areas ───────────────────────────────────────────────────────────────
 const matGrass=new THREE.MeshStandardMaterial({color:0x6a8050,roughness:1.0});
