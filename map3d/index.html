@@ -289,6 +289,34 @@ addBuilding(45.2, -21.8, 21.0, 41.3, 5, 1.5, matBldg, matRoof2, Math.PI / 2);
 // 22.5m E-W × 17.3m N-S; centre→scene(66.5,-15.4)
 addBuilding(66.5, -15.4, 17.3, 22.5, 4, 1.5, matBldg, matRoof2, Math.PI / 2);
 
+// ── Additional neighbors (added 2026-06-01) — satellite footprint + estimated heights ──
+// All following the same coordinate mapping: scene_x=(img_x-567)*0.150, scene_z=(img_y-500)*0.150
+// Heights estimated from context: Soviet-era Tver residential = 3-9 storeys
+
+// B7 — NE embankment neighbor (img 853,573 bright patch, lum=183)
+// 3-storey commercial continuing the embankment block; rotation same as main
+addBuilding(43, 13, 15, 26, 9, 2.0, matBldg, matRoof2, B_ROT_Y);
+
+// B8 — Across the street from main building's inland face
+// Street ~10m wide from SE face (normal dir cos/−sin); 3-storey mixed use
+addBuilding(8, -12, 12, 30, 9, 2.0, matBldg, matRoof2, B_ROT_Y);
+
+// B9 — North residential block (img 620,300 bright cluster, lum=153)
+// 4-storey Soviet-era residential, E-W orientation
+addBuilding(7, -40, 14, 35, 12, 2.5, matBldg, matRoof2, Math.PI / 2);
+
+// B10 — NE street-front building, 2nd row across street
+// 2-storey commercial; fills gap between B8 and B5 on the inland street
+addBuilding(20, -20, 10, 20, 7, 1.8, matBldg, matRoof2, B_ROT_Y);
+
+// B11 — Further NE along embankment (img 853,613 area)
+// 2-storey, small café/restaurant type; end of the embankment row
+addBuilding(58, 22, 13, 22, 6, 1.5, matBldg, matRoof2, B_ROT_Y);
+
+// B12 — Northern block east of B9 (img 800,166 cluster)
+// 3-storey residential, E-W street orientation
+addBuilding(35, -50, 14, 12, 9, 2.0, matBldg, matRoof2, Math.PI / 2);
+
 // ── Green areas, embankment landscaping ───────────────────────────────────────
 function addGrass(cx, cz, w, d) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.05, d), matGrass);
