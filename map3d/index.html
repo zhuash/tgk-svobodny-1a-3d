@@ -8,7 +8,6 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #1b2a35; overflow: hidden; font-family: system-ui, -apple-system, sans-serif; }
   canvas { display: block; width: 100vw !important; height: 100vh !important; }
-
   #ui {
     position: fixed; top: 12px; left: 12px; z-index: 10;
     display: flex; flex-direction: column; gap: 6px;
@@ -21,7 +20,6 @@
   }
   .cam-btn:hover { background: #fff; }
   .cam-btn.active { background: #2563eb; color: #fff; }
-
   #label {
     position: fixed; top: 12px; right: 12px; z-index: 10;
     background: rgba(37,99,235,.88); color: #fff; border-radius: 8px;
@@ -34,15 +32,6 @@
     padding: 5px 14px; border-radius: 20px; pointer-events: none;
     letter-spacing: .03em; white-space: nowrap;
   }
-  #loading {
-    position: fixed; inset: 0; background: rgba(15,20,28,.8);
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    z-index: 50; color: #fff; font-size: 17px; font-weight: 600; gap: 14px;
-    transition: opacity .5s;
-  }
-  #loading.hidden { opacity: 0; pointer-events: none; }
-  #progress { width: 220px; height: 4px; background: rgba(255,255,255,.2); border-radius: 2px; }
-  #progress-bar { height: 100%; background: #2563eb; border-radius: 2px; width: 0%; transition: width .3s; }
 </style>
 </head>
 <body>
@@ -60,11 +49,6 @@
   18 × 34 × 11 м · набережная Тьмаки
 </div>
 
-<div id="loading">
-  <div>⏳ Загрузка 3D-карты…</div>
-  <div id="progress"><div id="progress-bar"></div></div>
-</div>
-
 <div id="info">ЛКМ — вращение · ПКМ/средняя — пан · колесо — зум</div>
 
 <script type="importmap">
@@ -79,30 +63,15 @@
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-// ── Constants derived from satellite image analysis ──────────────────────────
-// Image: 1134×1000 px
-// Purple contour corners (detected from map_top_purple.jpg):
-//   NW(609,438), NE(805,552), SE(740,644), SW(564,543)
-//   Long side NW→NE: (196,114) px = 34m → SCALE = 34/226.7 = 0.150 m/px
-//   Short side NE→SE: (−65,92) px = 18m (slight diff due to satellite projection)
-const SCALE = 0.150;  // meters per pixel (calibrated from long side of purple contour)
-const IMG_W = 1134 * SCALE;   // ~170.1m
-const IMG_H = 1000 * SCALE;   // ~150.0m
-
-// Building center = centroid of 4 contour corners:
-//   img_x=(609+805+740+564)/4=679.5 → scene_x=(679.5-567)*0.150=+16.9m
-//   img_y=(438+552+644+543)/4=544.2 → scene_z=(544.2-500)*0.150=+6.6m
+// ── Satellite calibration ─────────────────────────────────────────────────────
+const SCALE = 0.150;
+const IMG_W = 1134 * SCALE;
+const IMG_H = 1000 * SCALE;
 const BX = 16.9, BZ = 6.6;
+const B_ROT_Y = Math.atan2(196, 114);
 
-// Building rotation: long axis NW(609,438)→NE(805,552), direction=(196,114)
-//   rotation.y = atan2(196,114) = 1.044 rad ≈ 59.8° (from +Z toward +X)
-const B_ROT_Y = Math.atan2(196, 114);  // 1.044 rad ≈ 59.8°
-
-const TERRACOTTA = 0xC1440E;
-
-// ── Renderer ─────────────────────────────────────────────────────────────────
+// ── Renderer ──────────────────────────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -113,14 +82,14 @@ renderer.toneMappingExposure = 1.0;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.body.appendChild(renderer.domElement);
 
-// ── Scene & camera ────────────────────────────────────────────────────────────
+// ── Scene ─────────────────────────────────────────────────────────────────────
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x7a9aae);
 scene.fog = new THREE.FogExp2(0x8aaabb, 0.006);
 
+// ── Camera ────────────────────────────────────────────────────────────────────
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.2, 600);
 camera.position.set(BX + 55, 12, BZ + 70);
-
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.07;
@@ -131,422 +100,386 @@ controls.target.set(BX, 4, BZ);
 controls.update();
 
 // ── Lighting ──────────────────────────────────────────────────────────────────
-const hemi = new THREE.HemisphereLight(0xc5d8e8, 0x6e7860, 1.1);
-scene.add(hemi);
-
+scene.add(new THREE.HemisphereLight(0xc5d8e8, 0x6e7860, 1.1));
 const sun = new THREE.DirectionalLight(0xfff0d8, 2.0);
 sun.position.set(60, 90, 40);
 sun.castShadow = true;
 sun.shadow.mapSize.setScalar(2048);
-sun.shadow.camera.near = 1;
-sun.shadow.camera.far = 400;
-sun.shadow.camera.left = -120;
-sun.shadow.camera.right = 120;
-sun.shadow.camera.top = 120;
-sun.shadow.camera.bottom = -120;
+sun.shadow.camera.near = 1; sun.shadow.camera.far = 400;
+sun.shadow.camera.left = -120; sun.shadow.camera.right = 120;
+sun.shadow.camera.top = 120; sun.shadow.camera.bottom = -120;
 sun.shadow.bias = -0.0003;
 scene.add(sun);
-scene.add(new THREE.DirectionalLight(0xb8cce0, 0.5).position.set(-40, 30, -50) && sun);
-
 const fill = new THREE.DirectionalLight(0xb8cce0, 0.5);
 fill.position.set(-40, 30, -50);
 scene.add(fill);
 
-// ── Procedural helpers ────────────────────────────────────────────────────────
-function makeWaterNormal(size = 256) {
-  const c = document.createElement('canvas');
-  c.width = c.height = size;
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = '#8080ff';
-  ctx.fillRect(0, 0, size, size);
-  for (let i = 0; i < 80; i++) {
-    const x = Math.random() * size, y = Math.random() * size, r = 8 + Math.random() * 22;
-    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    const a = 0.06 + Math.random() * 0.12;
-    g.addColorStop(0, `rgba(100,100,255,${a})`);
-    g.addColorStop(1, `rgba(128,128,255,0)`);
-    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+// ══════════════════════════════════════════════════════════════════════════════
+// PROCEDURAL TEXTURES — identical to root page v21
+// ══════════════════════════════════════════════════════════════════════════════
+function vnoise(seed) {
+  let s = seed >>> 0;
+  return (x, y) => { const n=Math.sin((x*12.9898+y*78.233+s*0.137))*43758.5453; return n-Math.floor(n); };
+}
+function fbm(rng, x, y, octaves=4) {
+  let v=0, a=0.5, f=1;
+  for (let i=0;i<octaves;i++) {
+    const xi=Math.floor(x*f), yi=Math.floor(y*f), xf=x*f-xi, yf=y*f-yi;
+    const u=xf*xf*(3-2*xf), w=yf*yf*(3-2*yf);
+    const a00=rng(xi,yi),a10=rng(xi+1,yi),a01=rng(xi,yi+1),a11=rng(xi+1,yi+1);
+    v+=a*(a00*(1-u)*(1-w)+a10*u*(1-w)+a01*(1-u)*w+a11*u*w);
+    a*=0.5; f*=2;
   }
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return v;
+}
+function heightToNormal(heights,W_,H_,strength=1.0) {
+  const out=new Uint8ClampedArray(W_*H_*4);
+  for (let y=0;y<H_;y++) for (let x=0;x<W_;x++) {
+    const xl=(x-1+W_)%W_,xr=(x+1)%W_,yu=(y-1+H_)%H_,yd=(y+1)%H_;
+    const dx=(heights[y*W_+xr]-heights[y*W_+xl])*strength, dy=(heights[yd*W_+x]-heights[yu*W_+x])*strength;
+    const nx=-dx,ny=-dy,nz=1,m=1/Math.hypot(nx,ny,nz), i=(y*W_+x)*4;
+    out[i]=(nx*m*0.5+0.5)*255; out[i+1]=(ny*m*0.5+0.5)*255; out[i+2]=(nz*m*0.5+0.5)*255; out[i+3]=255;
+  }
+  return out;
+}
+function makeTex(imageData, sRGB) {
+  const c=document.createElement('canvas'); c.width=imageData.width; c.height=imageData.height;
+  c.getContext('2d').putImageData(imageData,0,0);
+  const t=new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.anisotropy=8;
+  if (sRGB) t.colorSpace=THREE.SRGBColorSpace;
   return t;
 }
+function buildStoneTextures() {
+  const W_=512, H_=512;
+  const heights=new Float32Array(W_*H_), albedo=new Uint8ClampedArray(W_*H_*4), rough=new Uint8ClampedArray(W_*H_*4);
+  const rng1=vnoise(7), rng2=vnoise(17);
+  const jointRows=[0,H_/2];
+  function isJoint(x,y) {
+    let h=0;
+    for (const r of jointRows) { const dy=Math.min(Math.abs(y-r),Math.abs(y-r-H_),Math.abs(y-r+H_)); if(dy<1.5)h=Math.max(h,1-dy/1.5); }
+    const row=y<H_/2?0:1, xMid=((row*(W_/2))%W_);
+    for (const xs of [xMid,xMid+W_/2<W_?xMid+W_/2:xMid-W_/2]) { const dx=Math.min(Math.abs(x-xs),Math.abs(x-xs-W_),Math.abs(x-xs+W_)); if(dx<1.0)h=Math.max(h,1-dx/1.0); }
+    return h;
+  }
+  for (let y=0;y<H_;y++) for (let x=0;x<W_;x++) {
+    const nx=x/W_,ny=y/H_, v=fbm(rng1,nx*4,ny*4,4), fine=fbm(rng2,nx*32,ny*32,3), j=isJoint(x,y), grime=j*0.30;
+    const tone=0.93+0.05*v+0.020*(fine-0.5);
+    let r=0.824*tone,g=0.757*tone,b=0.612*tone;
+    r*=(1-grime);g*=(1-grime*1.05);b*=(1-grime*1.15);
+    const i=(y*W_+x)*4;
+    albedo[i]=Math.min(255,r*255);albedo[i+1]=Math.min(255,g*255);albedo[i+2]=Math.min(255,b*255);albedo[i+3]=255;
+    heights[y*W_+x]=-j*1.6+(fine-0.5)*0.15;
+    const ru=0.78+0.10*(1-v)+j*0.10; rough[i]=rough[i+1]=rough[i+2]=ru*255; rough[i+3]=255;
+  }
+  const normalArr=heightToNormal(heights,W_,H_,32), mkImg=(arr)=>new ImageData(arr,W_,H_);
+  return {map:makeTex(mkImg(albedo),true),normalMap:makeTex(mkImg(normalArr),false),roughnessMap:makeTex(mkImg(rough),false),sizeM:2.0};
+}
+function injectTriplanar(material, scalePerMeter) {
+  material.userData.triScale={value:scalePerMeter};
+  material.onBeforeCompile=(shader)=>{
+    shader.uniforms.triScale=material.userData.triScale;
+    shader.vertexShader=shader.vertexShader
+      .replace('#include <common>',`#include <common>\nvarying vec3 vWPos;\nvarying vec3 vWNrm;`)
+      .replace('#include <worldpos_vertex>',`#include <worldpos_vertex>\nvWPos=worldPosition.xyz;\nvWNrm=normalize(mat3(modelMatrix)*normal);`);
+    shader.fragmentShader=shader.fragmentShader
+      .replace('#include <common>',`#include <common>\nvarying vec3 vWPos;\nvarying vec3 vWNrm;\nuniform float triScale;\nvec2 triUV(){vec3 a=abs(vWNrm);if(a.x>a.y&&a.x>a.z)return vec2(vWPos.z,vWPos.y)*triScale;else if(a.z>a.x&&a.z>a.y)return vec2(vWPos.x,vWPos.y)*triScale;else return vec2(vWPos.x,vWPos.z)*triScale;}`)
+      .replace('#include <map_fragment>',`#ifdef USE_MAP\nvec4 sampledDiffuseColor=texture2D(map,triUV());\n#ifdef DECODE_VIDEO_TEXTURE\nsampledDiffuseColor=vec4(mix(pow(sampledDiffuseColor.rgb*0.9478672986+vec3(0.0521327014),vec3(2.4)),sampledDiffuseColor.rgb*0.0773993808,vec3(lessThanEqual(sampledDiffuseColor.rgb,vec3(0.04045)))),sampledDiffuseColor.w);\n#endif\ndiffuseColor*=sampledDiffuseColor;\n#endif`)
+      .replace('#include <normal_fragment_maps>',`#ifdef USE_NORMALMAP_TANGENTSPACE\nvec3 mapN=texture2D(normalMap,triUV()).xyz*2.0-1.0;\nmapN.xy*=normalScale;\nnormal=normalize(tbn*mapN);\n#endif`)
+      .replace('#include <roughnessmap_fragment>',`float roughnessFactor=roughness;\n#ifdef USE_ROUGHNESSMAP\nvec4 texelRoughness=texture2D(roughnessMap,triUV());\nroughnessFactor*=texelRoughness.g;\n#endif`);
+  };
+}
 
-// ── Materials ─────────────────────────────────────────────────────────────────
-const matGround = new THREE.MeshStandardMaterial({ roughness: 0.95, metalness: 0.0 });
+const stoneTex=buildStoneTextures(), stoneScale=1/stoneTex.sizeM;
 
-const waterNorm = makeWaterNormal();
-waterNorm.repeat.set(12, 12);
-const matWater = new THREE.MeshStandardMaterial({
-  color: 0x3d6b7a, roughness: 0.04, metalness: 0.08,
-  normalMap: waterNorm, normalScale: new THREE.Vector2(0.35, 0.35),
-  transparent: true, opacity: 0.86
-});
+const matStone=new THREE.MeshStandardMaterial({color:0xD2BF9C,map:stoneTex.map,normalMap:stoneTex.normalMap,normalScale:new THREE.Vector2(0.9,0.9),roughnessMap:stoneTex.roughnessMap,roughness:1.0,metalness:0.02,envMapIntensity:0.9});
+injectTriplanar(matStone,stoneScale);
+const matStoneShade=new THREE.MeshStandardMaterial({color:0xBFAD8A,map:stoneTex.map,normalMap:stoneTex.normalMap,normalScale:new THREE.Vector2(0.9,0.9),roughnessMap:stoneTex.roughnessMap,roughness:1.0,metalness:0.02,envMapIntensity:0.85});
+injectTriplanar(matStoneShade,stoneScale);
+const matParapet=new THREE.MeshStandardMaterial({color:0xE2D2B4,map:stoneTex.map,normalMap:stoneTex.normalMap,normalScale:new THREE.Vector2(0.7,0.7),roughnessMap:stoneTex.roughnessMap,roughness:1.0,metalness:0.02,envMapIntensity:1.0});
+injectTriplanar(matParapet,stoneScale);
+const matSeam=new THREE.MeshStandardMaterial({color:0xBD5C35,roughness:0.85,metalness:0.05,envMapIntensity:0.8,side:THREE.DoubleSide});
+const matRoofB=new THREE.MeshStandardMaterial({color:0xA84E28,roughness:0.85,metalness:0.05,envMapIntensity:0.8});
+const matCore=new THREE.MeshStandardMaterial({color:0x222629,roughness:1.0});
+const matGlass=new THREE.MeshPhysicalMaterial({color:0x1b2530,roughness:0.05,metalness:0.0,reflectivity:0.55,clearcoat:0.6,clearcoatRoughness:0.10,envMapIntensity:1.6});
 
-const matConcrete = new THREE.MeshStandardMaterial({ color: 0xb8b2a4, roughness: 0.92 });
-const matBldg = new THREE.MeshStandardMaterial({ color: 0xc8bfa8, roughness: 0.88 });
-const matRoof2 = new THREE.MeshStandardMaterial({ color: 0x857060, roughness: 0.9 });
-const matBridge = new THREE.MeshStandardMaterial({ color: 0xa09888, roughness: 0.88 });
-const matTrunk = new THREE.MeshStandardMaterial({ color: 0x5c3d1e, roughness: 1.0 });
-const matBank = new THREE.MeshStandardMaterial({ color: 0x8a7e6e, roughness: 0.9 });
-const matGrass = new THREE.MeshStandardMaterial({ color: 0x6a8050, roughness: 1.0 });
-const matFence = new THREE.MeshStandardMaterial({ color: 0xdedede, roughness: 0.35, metalness: 0.55 });
+// ══════════════════════════════════════════════════════════════════════════════
+// BUILDING GEOMETRY — root page v21 (unchanged)
+// ══════════════════════════════════════════════════════════════════════════════
+const W=18, L=34, H_F1=3.0, H_F2=3.0, H_TOTAL=11.0;
+const Y_F1=0, Y_F2=H_F1, Y_MAN=H_F1+H_F2, Y_RIDGE=H_TOTAL;
+const PLINTH=0.55, WALL_FACE_X=W/2, WALL_FACE_Z=L/2, SILL=0.60;
+const RIDGE_HALF_Z=14.0, Y_EAVE=6.7;
+
+const buildingGroup=new THREE.Group();
+
+function box(sx,sy,sz,mat,x,y,z) {
+  const m=new THREE.Mesh(new THREE.BoxGeometry(sx,sy,sz),mat);
+  m.position.set(x,y,z); m.castShadow=true; m.receiveShadow=true;
+  buildingGroup.add(m); return m;
+}
+const FACADES={
+  PX:{axis:'x',sign:+1,plane:+WALL_FACE_X,span:L},
+  NX:{axis:'x',sign:-1,plane:-WALL_FACE_X,span:L},
+  PZ:{axis:'z',sign:+1,plane:+WALL_FACE_Z,span:W},
+  NZ:{axis:'z',sign:-1,plane:-WALL_FACE_Z,span:W},
+};
+function onFacade(f,uPos,yC,uSize,ySize,outFace,depth,mat) {
+  const center=f.plane+f.sign*(outFace+depth/2);
+  if(f.axis==='x') return box(depth,ySize,uSize,mat,center,yC,uPos);
+  else             return box(uSize,ySize,depth,mat,uPos,yC,center);
+}
+function tri(a,b,c,mat) {
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.BufferAttribute(new Float32Array([a.x,a.y,a.z,b.x,b.y,b.z,c.x,c.y,c.z]),3));
+  g.setAttribute('uv',new THREE.BufferAttribute(new Float32Array([0,0,1,0,1,1]),2));
+  g.computeVertexNormals();
+  const m=new THREE.Mesh(g,mat); m.castShadow=true; m.receiveShadow=true;
+  buildingGroup.add(m); return m;
+}
+function hipQuad(v0,v1,v2,v3,mat) {
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.BufferAttribute(new Float32Array([v0[0],v0[1],v0[2],v1[0],v1[1],v1[2],v2[0],v2[1],v2[2],v0[0],v0[1],v0[2],v2[0],v2[1],v2[2],v3[0],v3[1],v3[2]]),3));
+  g.computeVertexNormals();
+  const m=new THREE.Mesh(g,mat); m.castShadow=true; m.receiveShadow=true;
+  buildingGroup.add(m); return m;
+}
+function hipTri(v0,v1,v2,mat) {
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.BufferAttribute(new Float32Array([v0[0],v0[1],v0[2],v1[0],v1[1],v1[2],v2[0],v2[1],v2[2]]),3));
+  g.computeVertexNormals();
+  const m=new THREE.Mesh(g,mat); m.castShadow=true; m.receiveShadow=true;
+  buildingGroup.add(m); return m;
+}
+function bayCenters(span,count,margin) {
+  const usable=span-2*margin,step=usable/count,out=[];
+  for(let i=0;i<count;i++) out.push(-span/2+margin+(i+0.5)*step);
+  return {centers:out,step};
+}
+function window2(f,uPos,yb,yt,wWidth,base=0) {
+  const yC=(yb+yt)/2,ySize=yt-yb,fr=0.10,proj=0.09;
+  onFacade(f,uPos,yC,wWidth,ySize,base+0.0,0.04,matGlass);
+  onFacade(f,uPos,yt+fr/2,wWidth+2*fr,fr,base,proj,matStoneShade);
+  onFacade(f,uPos,yb-fr/2,wWidth+2*fr,fr,base,proj,matStoneShade);
+  onFacade(f,uPos-wWidth/2-fr/2,yC,fr,ySize,base,proj,matStone);
+  onFacade(f,uPos+wWidth/2+fr/2,yC,fr,ySize,base,proj,matStone);
+}
+const bayLong=bayCenters(L,9,1.5), bayShort=bayCenters(W,5,1.6);
+function winCentersFor(f){return(f.axis==='x')?bayLong.centers:[bayShort.centers[0],bayShort.centers[1],bayShort.centers[3],bayShort.centers[4]];}
+function pilastersFor(f){const cs=winCentersFor(f),hw=(f.axis==='x')?WALL_FACE_Z:WALL_FACE_X,pos=[-(hw-0.15)];for(let i=1;i<cs.length;i++)pos.push((cs[i-1]+cs[i])/2);pos.push(hw-0.15);return pos;}
+
+box(W,H_F1+H_F2,L,matStone,0,(Y_F1+Y_MAN)/2,0);
+box(W-0.7,H_F1+H_F2-0.2,L-0.7,matCore,0,(Y_F1+Y_MAN)/2,0);
+box(W+0.3,PLINTH,L+0.3,matStoneShade,0,PLINTH/2,0);
+
+const WIN_W=1.60,WIN_H=2.10,WIN_1F_B=PLINTH,WIN_1F_T=PLINTH+WIN_H,WIN_2F_B=Y_F2+SILL,WIN_2F_T=WIN_2F_B+WIN_H;
+for (const key of ['PX','NX','PZ','NZ']) {
+  const f=FACADES[key],wc=winCentersFor(f),pl=pilastersFor(f);
+  onFacade(f,0,PLINTH+0.38,f.span,0.76,0.0,0.07,matStoneShade);
+  for(const c of wc) window2(f,c,WIN_1F_B,WIN_1F_T,WIN_W);
+  for(const pc of pl){onFacade(f,pc,Y_MAN/2,0.36,Y_MAN,0.0,0.10,matStone);onFacade(f,pc,Y_F2-0.02,0.44,0.26,0.0,0.15,matStoneShade);onFacade(f,pc,PLINTH+0.06,0.42,0.18,0.0,0.14,matStoneShade);}
+  onFacade(f,0,Y_F2-0.15,f.span,0.30,0.0,0.14,matStoneShade);
+  for(const c of wc) window2(f,c,WIN_2F_B,WIN_2F_T,WIN_W);
+}
+const kneeH=Y_EAVE-Y_MAN;
+box(W+0.10,kneeH,0.28,matStone,0,Y_MAN+kneeH/2,L/2+0.14);
+box(W+0.10,kneeH,0.28,matStoneShade,0,Y_MAN+kneeH/2,-L/2-0.14);
+box(0.28,kneeH,L+0.10,matStone,W/2+0.14,Y_MAN+kneeH/2,0);
+box(0.28,kneeH,L+0.10,matStoneShade,-W/2-0.14,Y_MAN+kneeH/2,0);
+box(W+0.7,0.45,L+0.7,matStoneShade,0,Y_EAVE-0.02,0);
+
+const hHW=W/2,hHL=L/2,hRz=RIDGE_HALF_Z,yEv=Y_EAVE,yRd=Y_RIDGE;
+const cFL=[+hHW,yEv,-hHL],cFR=[+hHW,yEv,+hHL],cBR=[-hHW,yEv,+hHL],cBL=[-hHW,yEv,-hHL];
+const rL=[0,yRd,-hRz],rR=[0,yRd,+hRz];
+hipQuad(cFL,rL,rR,cFR,matSeam);hipQuad(cBR,rR,rL,cBL,matSeam);
+hipTri(cBR,cFR,rR,matSeam);hipTri(cBL,rL,cFL,matSeam);
+box(0.22,0.16,2*hRz+0.20,matRoofB,0,yRd-0.08,0);
+
+const dWidth=1.60,dDepth=0.80,dGlassBaseY=Y_EAVE+0.25,dGlassH=2.10;
+const dWallTopY=dGlassBaseY+dGlassH,dPeakY=dWallTopY+0.40,dGW=dWidth/2+0.22;
+const dFrontX=hHW-0.30,dBodyXC=dFrontX-dDepth/2;
+const dSlXBase=hHW-(dWallTopY-yEv)*(hHW/(yRd-yEv));
+const dSlXPeak=hHW-(dPeakY-yEv)*(hHW/(yRd-yEv));
+
+function buildDormer(sign,zc){
+  const fX=sign*dFrontX,bcX=sign*dBodyXC;
+  box(0.05,dGlassH*0.88,dWidth*0.78,matGlass,fX+sign*0.02,dGlassBaseY+dGlassH*0.46,zc);
+  box(0.08,0.10,dWidth*0.85,matStoneShade,fX+sign*0.03,dGlassBaseY+0.07,zc);
+  box(0.08,0.10,dWidth*0.85,matStoneShade,fX+sign*0.03,dWallTopY-0.08,zc);
+  box(dDepth+0.04,dGlassH,0.20,matStone,bcX,(dGlassBaseY+dWallTopY)/2,zc-dWidth/2-0.10);
+  box(dDepth+0.04,dGlassH,0.20,matStone,bcX,(dGlassBaseY+dWallTopY)/2,zc+dWidth/2+0.10);
+  const sXb=sign*dSlXBase,sXp=sign*dSlXPeak;
+  if(sign>0){
+    hipQuad([fX,dWallTopY,zc-dGW],[sXb,dWallTopY,zc-dGW],[sXp,dPeakY,zc],[fX,dPeakY,zc],matSeam);
+    hipQuad([fX,dPeakY,zc],[sXp,dPeakY,zc],[sXb,dWallTopY,zc+dGW],[fX,dWallTopY,zc+dGW],matSeam);
+    tri(new THREE.Vector3(fX,dWallTopY,zc+dGW-0.06),new THREE.Vector3(fX,dWallTopY,zc-dGW+0.06),new THREE.Vector3(fX,dPeakY,zc),matStone);
+  } else {
+    hipQuad([fX,dPeakY,zc],[sXp,dPeakY,zc],[sXb,dWallTopY,zc-dGW],[fX,dWallTopY,zc-dGW],matSeam);
+    hipQuad([fX,dWallTopY,zc+dGW],[sXb,dWallTopY,zc+dGW],[sXp,dPeakY,zc],[fX,dPeakY,zc],matSeam);
+    tri(new THREE.Vector3(fX,dWallTopY,zc-dGW+0.06),new THREE.Vector3(fX,dWallTopY,zc+dGW-0.06),new THREE.Vector3(fX,dPeakY,zc),matStone);
+  }
+  box(dFrontX-dSlXPeak,0.10,0.10,matRoofB,sign*(dFrontX+dSlXPeak)/2,dPeakY+0.04,zc);
+}
+for(const zc of bayLong.centers){buildDormer(+1,zc);buildDormer(-1,zc);}
+
+const dFrontZ=hHL,dBodyZC=dFrontZ-dDepth/2;
+const dSlZBase=hHL-(dWallTopY-yEv)*(hHL-hRz)/(yRd-yEv);
+const dSlZPeak=hHL-(dPeakY-yEv)*(hHL-hRz)/(yRd-yEv);
+
+function buildDormerHip(signZ,xc){
+  const fZ=signZ*dFrontZ,bcZ=signZ*dBodyZC;
+  box(dWidth*0.78,dGlassH*0.88,0.05,matGlass,xc,dGlassBaseY+dGlassH*0.46,fZ-signZ*0.02);
+  box(dWidth*0.85,0.10,0.08,matStoneShade,xc,dGlassBaseY+0.07,fZ-signZ*0.03);
+  box(dWidth*0.85,0.10,0.08,matStoneShade,xc,dWallTopY-0.08,fZ-signZ*0.03);
+  box(0.20,dGlassH,dDepth+0.04,matStone,xc-dWidth/2-0.10,(dGlassBaseY+dWallTopY)/2,bcZ);
+  box(0.20,dGlassH,dDepth+0.04,matStone,xc+dWidth/2+0.10,(dGlassBaseY+dWallTopY)/2,bcZ);
+  const sZb=signZ*dSlZBase,sZp=signZ*dSlZPeak;
+  if(signZ>0){
+    hipQuad([xc,dPeakY,fZ],[xc,dPeakY,sZp],[xc-dGW,dWallTopY,sZb],[xc-dGW,dWallTopY,fZ],matSeam);
+    hipQuad([xc+dGW,dWallTopY,fZ],[xc+dGW,dWallTopY,sZb],[xc,dPeakY,sZp],[xc,dPeakY,fZ],matSeam);
+    tri(new THREE.Vector3(xc-dGW+0.06,dWallTopY,fZ),new THREE.Vector3(xc+dGW-0.06,dWallTopY,fZ),new THREE.Vector3(xc,dPeakY,fZ),matStone);
+  } else {
+    hipQuad([xc-dGW,dWallTopY,fZ],[xc-dGW,dWallTopY,sZb],[xc,dPeakY,sZp],[xc,dPeakY,fZ],matSeam);
+    hipQuad([xc,dPeakY,fZ],[xc,dPeakY,sZp],[xc+dGW,dWallTopY,sZb],[xc+dGW,dWallTopY,fZ],matSeam);
+    tri(new THREE.Vector3(xc+dGW-0.06,dWallTopY,fZ),new THREE.Vector3(xc-dGW+0.06,dWallTopY,fZ),new THREE.Vector3(xc,dPeakY,fZ),matStone);
+  }
+  box(0.10,0.10,Math.abs(fZ-sZp),matRoofB,xc,dPeakY+0.04,(fZ+sZp)/2);
+}
+for(const xc of [bayShort.centers[1],bayShort.centers[3]]){buildDormerHip(+1,xc);buildDormerHip(-1,xc);}
+
+// ── Place building in satellite coordinate system ─────────────────────────────
+buildingGroup.rotation.y = B_ROT_Y;
+buildingGroup.position.set(BX, 0, BZ);
+scene.add(buildingGroup);
+
+// ── Building footprint overlay (magenta wireframe) ────────────────────────────
+{
+  const cosR=Math.cos(B_ROT_Y),sinR=Math.sin(B_ROT_Y);
+  const c2D=[[-9,-17],[9,-17],[9,17],[-9,17],[-9,-17]];
+  const verts=new Float32Array(c2D.flatMap(([lx,lz])=>[cosR*lx+sinR*lz+BX,0.15,-sinR*lx+cosR*lz+BZ]));
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(verts,3));
+  scene.add(new THREE.Line(geo,new THREE.LineBasicMaterial({color:0xff00ff,depthTest:false})));
+}
 
 // ── Ground — satellite image ──────────────────────────────────────────────────
-const texLoader = new THREE.TextureLoader();
+const matGround=new THREE.MeshStandardMaterial({roughness:0.95,metalness:0.0});
+const texLoader=new THREE.TextureLoader();
 texLoader.load('map_top_purple.jpg',
-  (tex) => {
-    tex.colorSpace = THREE.SRGBColorSpace;
-    matGround.map = tex;
-    matGround.needsUpdate = true;
-    setProgress(40);
-  },
+  (tex)=>{tex.colorSpace=THREE.SRGBColorSpace;matGround.map=tex;matGround.needsUpdate=true;},
   undefined,
-  () => { matGround.color.set(0x6a7860); }
+  ()=>{matGround.color.set(0x6a7860);}
 );
-
-const groundPlane = new THREE.Mesh(
-  new THREE.PlaneGeometry(IMG_W, IMG_H),
-  matGround
-);
-groundPlane.rotation.x = -Math.PI / 2;
-groundPlane.position.set(0, 0, 0);
-groundPlane.receiveShadow = true;
+const groundPlane=new THREE.Mesh(new THREE.PlaneGeometry(IMG_W,IMG_H),matGround);
+groundPlane.rotation.x=-Math.PI/2; groundPlane.position.set(0,0,0); groundPlane.receiveShadow=true;
 scene.add(groundPlane);
 
-// ── River — Тьмака ────────────────────────────────────────────────────────────
-// River runs roughly along the western/left part of the image
-// In scene coords: covers from x≈-90 to x≈-16, z from -80 to +80
-const riverPlane = new THREE.Mesh(
-  new THREE.PlaneGeometry(80, 200),
-  matWater
-);
-riverPlane.rotation.x = -Math.PI / 2;
-riverPlane.position.set(-52, 0.08, 10);
-riverPlane.receiveShadow = true;
+// ── River ─────────────────────────────────────────────────────────────────────
+function makeWaterNormal(size=256){
+  const c=document.createElement('canvas');c.width=c.height=size;
+  const ctx=c.getContext('2d');ctx.fillStyle='#8080ff';ctx.fillRect(0,0,size,size);
+  for(let i=0;i<80;i++){const x=Math.random()*size,y=Math.random()*size,r=8+Math.random()*22,g=ctx.createRadialGradient(x,y,0,x,y,r),a=0.06+Math.random()*0.12;g.addColorStop(0,`rgba(100,100,255,${a})`);g.addColorStop(1,`rgba(128,128,255,0)`);ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();}
+  const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;return t;
+}
+const waterNorm=makeWaterNormal();
+waterNorm.repeat.set(12,12);
+const matWater=new THREE.MeshStandardMaterial({color:0x3d6b7a,roughness:0.04,metalness:0.08,normalMap:waterNorm,normalScale:new THREE.Vector2(0.35,0.35),transparent:true,opacity:0.86});
+const riverPlane=new THREE.Mesh(new THREE.PlaneGeometry(80,200),matWater);
+riverPlane.rotation.x=-Math.PI/2;riverPlane.position.set(-52,0.08,10);riverPlane.receiveShadow=true;
 scene.add(riverPlane);
 
-// ── Bridge (переулок Свободный crossing Тьмаку) ─────────────────────────────
-// Satellite: img(870-1134, 840-1000) → scene center(65.2, 63.0), 40m E-W × 24m N-S
-// No railings — the old N-S fence rails appeared as "fence crossing the river"
-const bridgeDeck = new THREE.Mesh(
-  new THREE.BoxGeometry(40, 0.3, 24),
-  matBridge
-);
-bridgeDeck.position.set(65.2, 0.15, 63.0);
-bridgeDeck.castShadow = true; bridgeDeck.receiveShadow = true;
+// ── Bridge ────────────────────────────────────────────────────────────────────
+const matBridge=new THREE.MeshStandardMaterial({color:0xa09888,roughness:0.88});
+const bridgeDeck=new THREE.Mesh(new THREE.BoxGeometry(40,0.3,24),matBridge);
+bridgeDeck.position.set(65.2,0.15,63.0);bridgeDeck.castShadow=true;bridgeDeck.receiveShadow=true;
 scene.add(bridgeDeck);
 
-// ── Window texture factory (tiled facade for residential buildings) ───────────
-const _winBase = (() => {
-  const SZ = 128;
-  const c = document.createElement('canvas');
-  c.width = c.height = SZ;
-  const ctx = c.getContext('2d');
-  // Cream/beige plaster background
-  ctx.fillStyle = '#cdc4b2';
-  ctx.fillRect(0, 0, SZ, SZ);
-  // Floor separator band at bottom of each cell
-  ctx.fillStyle = '#b8b0a0';
-  ctx.fillRect(0, SZ - 5, SZ, 5);
-  // Window glass
-  const wx = 18, wy = 16, ww = 92, wh = 72;
-  ctx.fillStyle = '#7aafc6';
-  ctx.fillRect(wx, wy, ww, wh);
-  // Sill
-  ctx.fillStyle = '#e0d8c8';
-  ctx.fillRect(wx - 3, wy + wh, ww + 6, 6);
-  // Frame
-  ctx.strokeStyle = 'rgba(240,235,225,0.88)';
-  ctx.lineWidth = 3;
-  ctx.strokeRect(wx, wy, ww, wh);
-  // Cross dividers
-  ctx.beginPath(); ctx.moveTo(wx + ww / 2, wy); ctx.lineTo(wx + ww / 2, wy + wh); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(wx, wy + wh / 2); ctx.lineTo(wx + ww, wy + wh / 2); ctx.stroke();
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  return t;
-})();
+// ══════════════════════════════════════════════════════════════════════════════
+// 2 Г-ОБРАЗНЫХ СОСЕДА (per E reference markup — teal contours only)
+// ══════════════════════════════════════════════════════════════════════════════
+const matBldg=new THREE.MeshStandardMaterial({color:0xc8bfa8,roughness:0.88});
+const matRoof2=new THREE.MeshStandardMaterial({color:0x7a6c5e,roughness:0.9});
 
-// Tiled facade material: one window bay per repeat cell
-function winMat(facadeW, facadeH, bayW = 3.2, floorH = 3.0) {
-  const t = _winBase.clone();
-  t.repeat.set(Math.max(2, Math.round(facadeW / bayW)), Math.max(2, Math.round(facadeH / floorH)));
-  t.needsUpdate = true;
-  return new THREE.MeshStandardMaterial({ map: t, roughness: 0.82, metalness: 0.0 });
+function addLBuilding(cx,cz,arm1,arm2,wallH){
+  const g=new THREE.Group();
+  [arm1,arm2].forEach(({w,d,ox,oz})=>{
+    const walls=new THREE.Mesh(new THREE.BoxGeometry(w,wallH,d),matBldg);
+    walls.position.set(ox,wallH/2,oz);walls.castShadow=true;walls.receiveShadow=true;g.add(walls);
+    const cap=new THREE.Mesh(new THREE.BoxGeometry(w+0.2,0.25,d+0.2),matRoof2);
+    cap.position.set(ox,wallH+0.125,oz);cap.castShadow=true;g.add(cap);
+  });
+  g.position.set(cx,0,cz);scene.add(g);return g;
 }
 
-// Flat roof material (grey slab / parapet)
-const matResRoof = new THREE.MeshStandardMaterial({ color: 0x9a9285, roughness: 0.9, metalness: 0.0 });
+// N1: Г-образный склад слева-сверху
+// Upper E-W bar + right N-S arm (teal top-left outline in reference)
+addLBuilding(-7, -62,
+  {w:41, d:7.5, ox:0,  oz:-9},
+  {w:13, d:17.5, ox:14, oz:4}, 5);
 
-// One rectangular arm of an L-shaped residential building.
-// BoxGeometry face material order: [+X(d×h), −X(d×h), +Y, −Y, +Z(w×h), −Z(w×h)]
-function addResArm(cx, cz, w, h, d, rotY = 0) {
-  const mats = [
-    winMat(d, h), winMat(d, h),   // ±X faces (depth × height)
-    matResRoof,   matResRoof,      // ±Y  (top / bottom — roof color)
-    winMat(w, h), winMat(w, h)    // ±Z faces (width × height)
-  ];
-  const box = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mats);
-  box.position.set(cx, h / 2, cz);
-  box.rotation.y = rotY;
-  box.castShadow = true; box.receiveShadow = true;
-  scene.add(box);
-  // Flat parapet slab on top (slight overhang)
-  const pH = 0.6;
-  const par = new THREE.Mesh(new THREE.BoxGeometry(w + 0.5, pH, d + 0.5), matResRoof);
-  par.position.set(cx, h + pH / 2, cz);
-  par.rotation.y = rotY;
-  par.castShadow = true;
-  scene.add(par);
-}
+// N2: Г-образный корпус справа-по-центру
+// Main E-W arm + left N-S extension (teal right-center outline in reference)
+addLBuilding(48, -29,
+  {w:47, d:15, ox:0,   oz:0 },
+  {w:20, d:15, ox:-13, oz:15}, 7);
 
-// ── Two 4-storey residential neighbours (Г-shaped footprints per E's markup) ──
-// Wall height = 4 floors × 3 m = 12 m.  Footprints from satellite, SCALE = 0.150 m/px.
-const RH = 12;  // residential wall height
-
-// L1 — Г-образный жилой дом СЛЕВА-СВЕРХУ (north-west of our building)
-// Corner at scene (−22, −70).  Г opens toward SE (toward our building).
-addResArm(-25.5, -58.0,  7, RH, 24);   // N-S vertical arm    x:−29…−22, z:−70…−46
-addResArm( -7.0, -74.0, 30, RH,  7);   // E-W horizontal arm  x:−22… +8, z:−77.5…−70.5
-
-// L2 — Г-образный жилой дом СПРАВА-ПО-ЦЕНТРУ (east of our building)
-// Corner at scene (56, −20).  Г opens toward NW (toward our building).
-addResArm( 37.5, -26.0, 37, RH, 12);   // E-W horizontal arm  x: 19…56, z:−32…−20
-addResArm( 62.0,  -9.0, 12, RH, 22);   // N-S vertical arm    x: 56…68, z:−20… +2
-
-// ── Green areas, embankment landscaping ───────────────────────────────────────
-function addGrass(cx, cz, w, d) {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.05, d), matGrass);
-  m.position.set(cx, 0.05, cz);
-  m.receiveShadow = true;
-  scene.add(m);
-}
-// Grassy area between building and riverbank
-addGrass(-4, 7, 22, 20);
-// Tree-covered area to the north (across river)
-addGrass(-45, -35, 70, 55);
+// ── Green areas ───────────────────────────────────────────────────────────────
+const matGrass=new THREE.MeshStandardMaterial({color:0x6a8050,roughness:1.0});
+[[-4,7,22,20],[-45,-35,70,55]].forEach(([cx,cz,w,d])=>{
+  const m=new THREE.Mesh(new THREE.BoxGeometry(w,0.05,d),matGrass);m.position.set(cx,0.05,cz);m.receiveShadow=true;scene.add(m);
+});
 
 // ── Trees ─────────────────────────────────────────────────────────────────────
-const autumnColors = [0xd4520a, 0xe0a020, 0xc87010, 0xa8580a, 0xd09020, 0x8a5820];
-function addTree(x, z, h, r, ci) {
-  const trH = h * 0.4;
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, trH, 6),matTrunk);
-  trunk.position.set(x, trH / 2, z);
-  trunk.castShadow = true;
-  scene.add(trunk);
-  const lm = new THREE.MeshStandardMaterial({
-    color: autumnColors[ci % autumnColors.length], roughness: 1.0, transparent: true, opacity: 0.9
-  });
-  for (let i = 0; i < 3; i++) {
-    const rs = r * (0.65 + Math.random() * 0.45);
-    const s = new THREE.Mesh(new THREE.SphereGeometry(rs, 7, 5), lm);
-    s.position.set(x + (Math.random()-.5)*r*.5, trH + r*.3 + i*r*.25, z + (Math.random()-.5)*r*.5);
-    s.castShadow = true;
-    scene.add(s);
-  }
+const matTrunk=new THREE.MeshStandardMaterial({color:0x5c3d1e,roughness:1.0});
+const autumnColors=[0xd4520a,0xe0a020,0xc87010,0xa8580a,0xd09020,0x8a5820];
+function addTree(x,z,h,r,ci){
+  const trH=h*0.4,trunk=new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.12,trH,6),matTrunk);
+  trunk.position.set(x,trH/2,z);trunk.castShadow=true;scene.add(trunk);
+  const lm=new THREE.MeshStandardMaterial({color:autumnColors[ci%autumnColors.length],roughness:1.0,transparent:true,opacity:0.9});
+  for(let i=0;i<3;i++){const rs=r*(0.65+Math.random()*0.45),s=new THREE.Mesh(new THREE.SphereGeometry(rs,7,5),lm);s.position.set(x+(Math.random()-.5)*r*.5,trH+r*.3+i*r*.25,z+(Math.random()-.5)*r*.5);s.castShadow=true;scene.add(s);}
 }
+[[-10,-5,5.5,2.2,0],[-12,5,6.0,2.4,2],[-8,16,5.2,2.1,4],[-10,27,5.8,2.3,1],[-12,-16,5.5,2.2,3],[10,-20,5.0,2.0,1],[22,-18,5.2,2.1,3],[5,-30,5.5,2.3,5],[55,-5,4.5,1.8,2],[58,10,4.8,2.0,0],[52,22,5.0,2.1,4]].forEach(([x,z,h,r,c])=>addTree(x,z,h,r,c));
 
-// Trees along embankment (between building and river)
-const treeData = [
-  [-10, -5, 5.5, 2.2, 0], [-12, 5, 6.0, 2.4, 2], [-8, 16, 5.2, 2.1, 4],
-  [-10, 27, 5.8, 2.3, 1], [-12, -16, 5.5, 2.2, 3],
-  // Far bank trees omitted — the west bank is outside the satellite image extent at this scale
-  // Trees behind building
-  [10, -20, 5.0, 2.0, 1], [22, -18, 5.2, 2.1, 3], [5, -30, 5.5, 2.3, 5],
-  // Near road area
-  [55, -5, 4.5, 1.8, 2], [58, 10, 4.8, 2.0, 0], [52, 22, 5.0, 2.1, 4],
-];
-treeData.forEach(([x, z, h, r, c]) => addTree(x, z, h, r, c));
-
-// ── Street lamps along embankment ─────────────────────────────────────────────
-const matLamp = new THREE.MeshStandardMaterial({ color: 0x3a3530, roughness: 0.5, metalness: 0.7 });
-function addLamp(x, z) {
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.06, 4.5, 8), matLamp);
-  pole.position.set(x, 2.25, z);
-  pole.castShadow = true;
-  scene.add(pole);
-  const pl = new THREE.PointLight(0xfff0b0, 0.6, 15, 2);
-  pl.position.set(x + 0.8, 4.4, z);
-  scene.add(pl);
-}
-for (let z = -20; z <= 25; z += 10) {
-  addLamp(-2, z);
-  addLamp(38, z);
-}
+// ── Street lamps ──────────────────────────────────────────────────────────────
+const matLamp=new THREE.MeshStandardMaterial({color:0x3a3530,roughness:0.5,metalness:0.7});
+function addLamp(x,z){const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.06,4.5,8),matLamp);pole.position.set(x,2.25,z);pole.castShadow=true;scene.add(pole);const pl=new THREE.PointLight(0xfff0b0,0.6,15,2);pl.position.set(x+0.8,4.4,z);scene.add(pl);}
+for(let z=-20;z<=25;z+=10){addLamp(-2,z);addLamp(38,z);}
 
 // ── Sky dome ──────────────────────────────────────────────────────────────────
-const skyMat = new THREE.ShaderMaterial({
-  side: THREE.BackSide,
-  uniforms: {
-    topColor: { value: new THREE.Color(0x5a7a96) },
-    botColor: { value: new THREE.Color(0x9ab8c8) }
-  },
-  vertexShader: `varying float vY; void main(){vY=position.y;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
-  fragmentShader: `uniform vec3 topColor,botColor;varying float vY;void main(){float t=clamp((vY+10.)/390.,0.,1.);gl_FragColor=vec4(mix(botColor,topColor,t),1.);}`
-});
-scene.add(new THREE.Mesh(new THREE.SphereGeometry(380, 16, 8), skyMat));
+const skyMat=new THREE.ShaderMaterial({side:THREE.BackSide,uniforms:{topColor:{value:new THREE.Color(0x5a7a96)},botColor:{value:new THREE.Color(0x9ab8c8)}},vertexShader:`varying float vY;void main(){vY=position.y;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,fragmentShader:`uniform vec3 topColor,botColor;varying float vY;void main(){float t=clamp((vY+10.)/390.,0.,1.);gl_FragColor=vec4(mix(botColor,topColor,t),1.);}`});
+scene.add(new THREE.Mesh(new THREE.SphereGeometry(380,16,8),skyMat));
 
-// ── Building footprint overlay (wall outline 34×18m) ─────────────────────────
-// Magenta wireframe rectangle at ground level; coincides with GLB wall footprint
-{
-  const WALL_L = 34, WALL_W = 18;
-  const cosR = Math.cos(B_ROT_Y), sinR = Math.sin(B_ROT_Y);
-  const corners2D = [
-    [-WALL_W/2, -WALL_L/2], [WALL_W/2, -WALL_L/2],
-    [WALL_W/2,  WALL_L/2], [-WALL_W/2,  WALL_L/2],
-    [-WALL_W/2, -WALL_L/2],  // close loop
-  ];
-  const verts = new Float32Array(corners2D.flatMap(([lx, lz]) => [
-    cosR * lx + sinR * lz + BX, 0.15,
-    -sinR * lx + cosR * lz + BZ
-  ]));
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
-  scene.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xff00ff, depthTest: false })));
-}
-
-// ── Load TGK building GLB ─────────────────────────────────────────────────────
-setProgress(10);
-const loader = new GLTFLoader();
-loader.load('tgk_svobodny1a.glb',
-  (gltf) => {
-    const model = gltf.scene;
-
-    // GLB is in real meters: wall footprint 34×18m, bbox 34.7×18.7m (eaves +0.35m/side).
-    // Satellite SCALE=0.150 m/px gives purple outline = 34m = wall reference.
-    // No uniform scale applied — building walls align with outline; eaves overhang 0.35m.
-
-    // Apply rotation: long Z axis must point to ESE (atan2(196,112)≈60°)
-    model.rotation.y = B_ROT_Y;
-
-    // Recompute bounding box after rotation and place with bottom at y=0
-    const bb2 = new THREE.Box3().setFromObject(model);
-    const center = bb2.getCenter(new THREE.Vector3());
-    model.position.set(
-      BX - center.x,
-      -bb2.min.y,
-      BZ - center.z
-    );
-
-    // Fix roof material: ALL dark non-glass materials → terracotta
-    // Roof uses matSeam (seam texture, rough=0.62, metal=0.30) + matRoof (rough=1.0, metal=0.0)
-    // Glass: metal > 0.70 (keep dark). Walls: lum > 0.55 (keep cream/stone)
-    model.traverse(o => {
-      if (!o.isMesh) return;
-      o.castShadow = true;
-      o.receiveShadow = true;
-      const mats = Array.isArray(o.material) ? o.material : [o.material];
-      mats.forEach(m => {
-        if (!m.isMeshStandardMaterial) return;
-        const c = m.color;
-        const lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
-        if (lum < 0.55 && m.metalness < 0.70) {
-          m.color.set(TERRACOTTA);
-          m.roughness = 0.85;
-          m.metalness = 0.0;
-          if (m.map) { m.map = null; }  // remove seam texture
-          m.needsUpdate = true;
-        }
-      });
-    });
-
-    scene.add(model);
-    setProgress(100);
-    document.body.dataset.modelLoaded = '1';
-
-    setTimeout(() => {
-      const ov = document.getElementById('loading');
-      if (ov) ov.classList.add('hidden');
-    }, 500);
-  },
-  (xhr) => {
-    if (xhr.total) setProgress(10 + Math.round(xhr.loaded / xhr.total * 70));
-  },
-  (err) => {
-    console.error('GLB load error', err);
-    document.body.dataset.modelError = '1';
-    const ov = document.getElementById('loading');
-    if (ov) ov.classList.add('hidden');
-  }
-);
-
-function setProgress(pct) {
-  const bar = document.getElementById('progress-bar');
-  if (bar) bar.style.width = pct + '%';
-}
-
-// ── Camera presets ─────────────────────────────────────────────────────────────
-// pos: [x,y,z], target: [x,y,z], fov
-const CAMERAS = [
-  // "С моста" — low angle from SE (bridge side), sees the SW long facade
-  { pos: [BX+55, 8, BZ+65], target: [BX, 4, BZ], fov: 48 },
-  // "Угловой 3/4" — bird's eye from SW (river side)
-  { pos: [BX-45, 35, BZ-30], target: [BX, 3, BZ], fov: 42 },
-  // "Карта" — near-vertical top-down (tiny offset avoids OrbitControls polar singularity)
-  { pos: [BX - 5, 130, BZ - 5], target: [BX, 0, BZ], fov: 55 },
-  // "Аэро" — high oblique from NE
-  { pos: [BX+70, 65, BZ-55], target: [BX, 0, BZ], fov: 40 },
+// ── Camera presets ────────────────────────────────────────────────────────────
+const CAMERAS=[
+  {pos:[BX+55,8,BZ+65],target:[BX,4,BZ],fov:48},
+  {pos:[BX-45,35,BZ-30],target:[BX,3,BZ],fov:42},
+  {pos:[BX-5,130,BZ-5],target:[BX,0,BZ],fov:55},
+  {pos:[BX+70,65,BZ-55],target:[BX,0,BZ],fov:40},
 ];
-
-function flyTo(idx) {
-  const cfg = CAMERAS[idx];
-  const p0 = camera.position.clone();
-  const t0 = controls.target.clone();
-  const p1 = new THREE.Vector3(...cfg.pos);
-  const t1 = new THREE.Vector3(...cfg.target);
-  const t_start = performance.now();
-  const dur = 900;
-
-  function step(now) {
-    const a = Math.min((now - t_start) / dur, 1);
-    const e = 1 - Math.pow(1 - a, 3);
-    camera.position.lerpVectors(p0, p1, e);
-    controls.target.lerpVectors(t0, t1, e);
-    camera.fov = THREE.MathUtils.lerp(camera.fov, cfg.fov, e);
-    camera.updateProjectionMatrix();
-    controls.update();
-    if (a < 1) requestAnimationFrame(step);
-  }
+function flyTo(idx){
+  const cfg=CAMERAS[idx],p0=camera.position.clone(),t0=controls.target.clone();
+  const p1=new THREE.Vector3(...cfg.pos),t1=new THREE.Vector3(...cfg.target);
+  const t_start=performance.now(),dur=900;
+  function step(now){const a=Math.min((now-t_start)/dur,1),e=1-Math.pow(1-a,3);camera.position.lerpVectors(p0,p1,e);controls.target.lerpVectors(t0,t1,e);camera.fov=THREE.MathUtils.lerp(camera.fov,cfg.fov,e);camera.updateProjectionMatrix();controls.update();if(a<1)requestAnimationFrame(step);}
   requestAnimationFrame(step);
-  document.querySelectorAll('.cam-btn').forEach((b, i) => b.classList.toggle('active', i === idx));
+  document.querySelectorAll('.cam-btn').forEach((b,i)=>b.classList.toggle('active',i===idx));
 }
-
-document.querySelectorAll('.cam-btn').forEach((b, i) => b.addEventListener('click', () => flyTo(i)));
-
-// Instant snap (for headless screenshots)
-window.snapCamera = function(idx) {
-  const cfg = CAMERAS[idx];
-  camera.position.set(...cfg.pos);
-  controls.target.set(...cfg.target);
-  camera.fov = cfg.fov;
-  camera.updateProjectionMatrix();
-  controls.update();
-  document.querySelectorAll('.cam-btn').forEach((b, i) => b.classList.toggle('active', i === idx));
-};
+document.querySelectorAll('.cam-btn').forEach((b,i)=>b.addEventListener('click',()=>flyTo(i)));
+window.snapCamera=function(idx){const cfg=CAMERAS[idx];camera.position.set(...cfg.pos);controls.target.set(...cfg.target);camera.fov=cfg.fov;camera.updateProjectionMatrix();controls.update();document.querySelectorAll('.cam-btn').forEach((b,i)=>b.classList.toggle('active',i===idx));};
 
 // ── Resize ────────────────────────────────────────────────────────────────────
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
+window.addEventListener('resize',()=>{camera.aspect=window.innerWidth/window.innerHeight;camera.updateProjectionMatrix();renderer.setSize(window.innerWidth,window.innerHeight);});
 
 // ── Render loop ───────────────────────────────────────────────────────────────
-const clock = new THREE.Clock();
-function animate() {
-  requestAnimationFrame(animate);
-  controls.update();
-  const t = clock.getElapsedTime();
-  waterNorm.offset.set(t * 0.01, t * 0.007);
-  renderer.render(scene, camera);
+const clock=new THREE.Clock();
+function animate(){
+  requestAnimationFrame(animate);controls.update();
+  const t=clock.getElapsedTime();waterNorm.offset.set(t*0.01,t*0.007);
+  renderer.render(scene,camera);
 }
 animate();
-
-// Init camera
 flyTo(0);
-window.mapScene = scene;
+document.body.dataset.modelLoaded='1';
+window.mapScene=scene;
 </script>
 </body>
 </html>
