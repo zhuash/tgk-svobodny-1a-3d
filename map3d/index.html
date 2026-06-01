@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>ТГК «Гранд Авеню» — карта 3D</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1b2a35; overflow: hidden; font-family: system-ui, -apple-system, sans-serif; }
+  canvas { display: block; width: 100vw !important; height: 100vh !important; }
+
+  #ui {
+    position: fixed; top: 12px; left: 12px; z-index: 10;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .cam-btn {
+    background: rgba(255,255,255,0.93); border: none; border-radius: 7px;
+    padding: 8px 14px; font-size: 13px; cursor: pointer; font-weight: 500;
+    color: #1a2030; transition: background .15s;
+    box-shadow: 0 2px 8px rgba(0,0,0,.4); white-space: nowrap;
+  }
+  .cam-btn:hover { background: #fff; }
+  .cam-btn.active { background: #2563eb; color: #fff; }
+
+  #label {
+    position: fixed; top: 12px; right: 12px; z-index: 10;
+    background: rgba(37,99,235,.88); color: #fff; border-radius: 8px;
+    padding: 8px 14px; font-size: 12px; line-height: 1.6; max-width: 230px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.4);
+  }
+  #info {
+    position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,.55); color: #dde5ec; font-size: 11px;
+    padding: 5px 14px; border-radius: 20px; pointer-events: none;
+    letter-spacing: .03em; white-space: nowrap;
+  }
+  #loading {
+    position: fixed; inset: 0; background: rgba(15,20,28,.8);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 50; color: #fff; font-size: 17px; font-weight: 600; gap: 14px;
+    transition: opacity .5s;
+  }
+  #loading.hidden { opacity: 0; pointer-events: none; }
+  #progress { width: 220px; height: 4px; background: rgba(255,255,255,.2); border-radius: 2px; }
+  #progress-bar { height: 100%; background: #2563eb; border-radius: 2px; width: 0%; transition: width .3s; }
+</style>
+</head>
+<body>
+
+<div id="ui">
+  <button class="cam-btn active" data-cam="0">🌉 С моста</button>
+  <button class="cam-btn" data-cam="1">📐 Угловой 3/4</button>
+  <button class="cam-btn" data-cam="2">🗺️ Карта (сверху)</button>
+  <button class="cam-btn" data-cam="3">🚁 Аэро</button>
+</div>
+
+<div id="label">
+  <b>ТГК «Гранд Авеню»</b><br>
+  Тверь, пер. Свободный 1а<br>
+  18 × 34 × 11 м · набережная Тьмаки
+</div>
+
+<div id="loading">
+  <div>⏳ Загрузка 3D-карты…</div>
+  <div id="progress"><div id="progress-bar"></div></div>
+</div>
+
+<div id="info">ЛКМ — вращение · ПКМ/средняя — пан · колесо — зум</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.167.0/build/three.module.min.js",
+    "three/addons/": "https://unpkg.com/three@0.167.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+// ── Constants derived from satellite image analysis ──────────────────────────
+// Image: 1134×1000 px; building 18×34m fits in ~112×214 px (short × long side)
+// Scale: ~0.159 m/px; plane covers ~180×159m in world units
+const SCALE = 0.159;  // meters per pixel
+const IMG_W = 1134 * SCALE;   // ~180.3m
+const IMG_H = 1000 * SCALE;   // ~159.0m
+
+// Building center in scene (image-center at origin):
+//   img_x=678.8 → scene_x = (678.8-567)*0.159 = +17.8m
+//   img_y=542.4 → scene_z = (542.4-500)*0.159 =  +6.7m
+const BX = 17.8, BZ = 6.7;
+
+// Building rotation: long axis runs from NW(608,440) to NE(804,552) in image
+//   direction (196, 112) → scene (dx=196, dz=112); rotation.y=atan2(196,112)
+const B_ROT_Y = Math.atan2(196, 112);  // ≈1.047 rad ≈ 60°
+
+const TERRACOTTA = 0xC1440E;
+
+// ── Renderer ─────────────────────────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+// ── Scene & camera ────────────────────────────────────────────────────────────
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x7a9aae);
+scene.fog = new THREE.FogExp2(0x8aaabb, 0.006);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.2, 600);
+camera.position.set(BX + 55, 12, BZ + 70);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.07;
+controls.minDistance = 8;
+controls.maxDistance = 400;
+controls.maxPolarAngle = Math.PI * 0.49;
+controls.target.set(BX, 4, BZ);
+controls.update();
+
+// ── Lighting ──────────────────────────────────────────────────────────────────
+const hemi = new THREE.HemisphereLight(0xc5d8e8, 0x6e7860, 1.1);
+scene.add(hemi);
+
+const sun = new THREE.DirectionalLight(0xfff0d8, 2.0);
+sun.position.set(60, 90, 40);
+sun.castShadow = true;
+sun.shadow.mapSize.setScalar(2048);
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 400;
+sun.shadow.camera.left = -120;
+sun.shadow.camera.right = 120;
+sun.shadow.camera.top = 120;
+sun.shadow.camera.bottom = -120;
+sun.shadow.bias = -0.0003;
+scene.add(sun);
+scene.add(new THREE.DirectionalLight(0xb8cce0, 0.5).position.set(-40, 30, -50) && sun);
+
+const fill = new THREE.DirectionalLight(0xb8cce0, 0.5);
+fill.position.set(-40, 30, -50);
+scene.add(fill);
+
+// ── Procedural helpers ────────────────────────────────────────────────────────
+function makeWaterNormal(size = 256) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#8080ff';
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 80; i++) {
+    const x = Math.random() * size, y = Math.random() * size, r = 8 + Math.random() * 22;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    const a = 0.06 + Math.random() * 0.12;
+    g.addColorStop(0, `rgba(100,100,255,${a})`);
+    g.addColorStop(1, `rgba(128,128,255,0)`);
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+
+// ── Materials ─────────────────────────────────────────────────────────────────
+const matGround = new THREE.MeshStandardMaterial({ roughness: 0.95, metalness: 0.0 });
+
+const waterNorm = makeWaterNormal();
+waterNorm.repeat.set(12, 12);
+const matWater = new THREE.MeshStandardMaterial({
+  color: 0x3d6b7a, roughness: 0.04, metalness: 0.08,
+  normalMap: waterNorm, normalScale: new THREE.Vector2(0.35, 0.35),
+  transparent: true, opacity: 0.86
+});
+
+const matConcrete = new THREE.MeshStandardMaterial({ color: 0xb8b2a4, roughness: 0.92 });
+const matBldg = new THREE.MeshStandardMaterial({ color: 0xc8bfa8, roughness: 0.88 });
+const matRoof2 = new THREE.MeshStandardMaterial({ color: 0x857060, roughness: 0.9 });
+const matBridge = new THREE.MeshStandardMaterial({ color: 0xa09888, roughness: 0.88 });
+const matTrunk = new THREE.MeshStandardMaterial({ color: 0x5c3d1e, roughness: 1.0 });
+const matBank = new THREE.MeshStandardMaterial({ color: 0x8a7e6e, roughness: 0.9 });
+const matGrass = new THREE.MeshStandardMaterial({ color: 0x6a8050, roughness: 1.0 });
+const matFence = new THREE.MeshStandardMaterial({ color: 0xdedede, roughness: 0.35, metalness: 0.55 });
+
+// ── Ground — satellite image ──────────────────────────────────────────────────
+const texLoader = new THREE.TextureLoader();
+texLoader.load('map_top_purple.jpg',
+  (tex) => {
+    tex.colorSpace = THREE.SRGBColorSpace;
+    matGround.map = tex;
+    matGround.needsUpdate = true;
+    setProgress(40);
+  },
+  undefined,
+  () => { matGround.color.set(0x6a7860); }
+);
+
+const groundPlane = new THREE.Mesh(
+  new THREE.PlaneGeometry(IMG_W, IMG_H),
+  matGround
+);
+groundPlane.rotation.x = -Math.PI / 2;
+groundPlane.position.set(0, 0, 0);
+groundPlane.receiveShadow = true;
+scene.add(groundPlane);
+
+// ── River — Тьмака ────────────────────────────────────────────────────────────
+// River runs roughly along the western/left part of the image
+// In scene coords: covers from x≈-90 to x≈-16, z from -80 to +80
+const riverPlane = new THREE.Mesh(
+  new THREE.PlaneGeometry(80, 200),
+  matWater
+);
+riverPlane.rotation.x = -Math.PI / 2;
+riverPlane.position.set(-52, 0.08, 10);
+riverPlane.receiveShadow = true;
+scene.add(riverPlane);
+
+// River bank retaining walls
+function addWall(x, y, z, w, h, d, mat) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  m.position.set(x, y, z);
+  m.castShadow = true; m.receiveShadow = true;
+  scene.add(m); return m;
+}
+// East bank retaining wall (the embankment edge toward river)
+addWall(-14, 0.4, 10, 0.5, 1.2, 160, matBank);
+// Far west bank
+addWall(-88, 0.3, 10, 0.5, 0.8, 160, matBank);
+
+// ── Bridge (Свободный пер. crossing) ────────────────────────────────────────
+// Bridge at image ~(1015, 860) → scene (71, 0, 57), runs N-S, crosses river
+const bridgeX = 71;
+const bridgeZ0 = 30, bridgeZ1 = 100;
+const bridgeLen = bridgeZ1 - bridgeZ0;
+
+// Bridge deck
+const bridgeDeck = new THREE.Mesh(
+  new THREE.BoxGeometry(8, 0.25, bridgeLen),
+  matBridge
+);
+bridgeDeck.position.set(bridgeX, 0.12, (bridgeZ0 + bridgeZ1) / 2);
+bridgeDeck.castShadow = true; bridgeDeck.receiveShadow = true;
+scene.add(bridgeDeck);
+
+// Bridge piers
+for (const pz of [42, 58, 74, 90]) {
+  addWall(bridgeX, -1.5, pz, 1.5, 4, 6, matConcrete);
+}
+
+// Bridge railings (simple boxes)
+for (const side of [-3.6, 3.6]) {
+  addWall(bridgeX, 0.65, (bridgeZ0 + bridgeZ1) / 2, 0.1, 1.0, bridgeLen, matFence);
+}
+
+// ── Neighboring buildings (from satellite image analysis) ─────────────────────
+// Helper: extrude a box building with simple hip-pyramid roof
+function addBuilding(cx, cz, w, d, wallH, roofH, wallMat, roofMat, rotY = 0) {
+  const g = new THREE.Group();
+  const walls = new THREE.Mesh(new THREE.BoxGeometry(w, wallH, d), wallMat);
+  walls.position.y = wallH / 2;
+  walls.castShadow = true; walls.receiveShadow = true;
+  g.add(walls);
+
+  // Simple pyramid/hip roof
+  const roof = new THREE.Mesh(
+    new THREE.ConeGeometry(Math.max(w, d) * 0.62, roofH, 4),
+    roofMat
+  );
+  roof.rotation.y = Math.PI / 4;
+  roof.position.y = wallH + roofH / 2;
+  roof.castShadow = true;
+  g.add(roof);
+
+  g.position.set(cx, 0, cz);
+  g.rotation.y = rotY;
+  scene.add(g);
+  return g;
+}
+
+// Building 1: large factory/warehouse upper-left of image (~(530, 75) → scene(-5.9, -66.8))
+addBuilding(-5.9, -67, 31, 14, 6, 3, matBldg, matRoof2, 0.3);
+
+// Building 2: long building center-top (~(635, 70) → scene(10.8, -68.3))
+addBuilding(11, -68, 20, 10, 5, 2.5, matBldg, matRoof2, 0.2);
+
+// Building 3: large L-building upper-right (~(885, 210) → scene(50.6, -46.1))
+addBuilding(51, -46, 25, 18, 7, 3.5, matBldg, matRoof2, 0);
+addBuilding(64, -38, 12, 14, 7, 3.5, matBldg, matRoof2, 0);
+
+// Building 4: smaller residential upper-right (~(870, 310) → scene(48, -30.1))
+addBuilding(48, -30, 20, 12, 5, 2.5, matBldg, matRoof2, 0.1);
+
+// Building 5: office block right side (~(975, 295) → scene(64.9, -32.4))
+addBuilding(65, -32, 14, 14, 6, 3, matBldg, matRoof2, 0);
+
+// Building 6: near road right (~(1005, 350) → scene(69.7, -23.9))
+addBuilding(70, -24, 10, 10, 4, 2, matBldg, matRoof2, 0.3);
+
+// Building 7: small white triangular building right-mid (~(990, 395) → scene(67.4, -16.8))
+addBuilding(67, -17, 12, 8, 3, 2, matBldg, matRoof2, -0.4);
+
+// ── Green areas, embankment landscaping ───────────────────────────────────────
+function addGrass(cx, cz, w, d) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.05, d), matGrass);
+  m.position.set(cx, 0.05, cz);
+  m.receiveShadow = true;
+  scene.add(m);
+}
+// Grassy area between building and riverbank
+addGrass(-4, 7, 22, 20);
+// Tree-covered area to the north (across river)
+addGrass(-45, -35, 70, 55);
+
+// ── Trees ─────────────────────────────────────────────────────────────────────
+const autumnColors = [0xd4520a, 0xe0a020, 0xc87010, 0xa8580a, 0xd09020, 0x8a5820];
+function addTree(x, z, h, r, ci) {
+  const trH = h * 0.4;
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, trH, 6),matTrunk);
+  trunk.position.set(x, trH / 2, z);
+  trunk.castShadow = true;
+  scene.add(trunk);
+  const lm = new THREE.MeshStandardMaterial({
+    color: autumnColors[ci % autumnColors.length], roughness: 1.0, transparent: true, opacity: 0.9
+  });
+  for (let i = 0; i < 3; i++) {
+    const rs = r * (0.65 + Math.random() * 0.45);
+    const s = new THREE.Mesh(new THREE.SphereGeometry(rs, 7, 5), lm);
+    s.position.set(x + (Math.random()-.5)*r*.5, trH + r*.3 + i*r*.25, z + (Math.random()-.5)*r*.5);
+    s.castShadow = true;
+    scene.add(s);
+  }
+}
+
+// Trees along embankment (between building and river)
+const treeData = [
+  [-10, -5, 5.5, 2.2, 0], [-12, 5, 6.0, 2.4, 2], [-8, 16, 5.2, 2.1, 4],
+  [-10, 27, 5.8, 2.3, 1], [-12, -16, 5.5, 2.2, 3],
+  // Far bank
+  [-65, -20, 5, 2.0, 3], [-60, -8, 4.8, 1.9, 1], [-68, 5, 5.5, 2.3, 4],
+  [-55, -25, 5.2, 2.1, 0], [-55, 15, 4.9, 2.0, 5],
+  [-40, -30, 5.3, 2.2, 2], [-35, -15, 4.8, 2.0, 0],
+  // Trees behind building
+  [10, -20, 5.0, 2.0, 1], [22, -18, 5.2, 2.1, 3], [5, -30, 5.5, 2.3, 5],
+  // Near road area
+  [55, -5, 4.5, 1.8, 2], [58, 10, 4.8, 2.0, 0], [52, 22, 5.0, 2.1, 4],
+];
+treeData.forEach(([x, z, h, r, c]) => addTree(x, z, h, r, c));
+
+// ── Street lamps along embankment ─────────────────────────────────────────────
+const matLamp = new THREE.MeshStandardMaterial({ color: 0x3a3530, roughness: 0.5, metalness: 0.7 });
+function addLamp(x, z) {
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.06, 4.5, 8), matLamp);
+  pole.position.set(x, 2.25, z);
+  pole.castShadow = true;
+  scene.add(pole);
+  const pl = new THREE.PointLight(0xfff0b0, 0.6, 15, 2);
+  pl.position.set(x + 0.8, 4.4, z);
+  scene.add(pl);
+}
+for (let z = -20; z <= 25; z += 10) {
+  addLamp(-2, z);
+  addLamp(38, z);
+}
+
+// ── Sky dome ──────────────────────────────────────────────────────────────────
+const skyMat = new THREE.ShaderMaterial({
+  side: THREE.BackSide,
+  uniforms: {
+    topColor: { value: new THREE.Color(0x5a7a96) },
+    botColor: { value: new THREE.Color(0x9ab8c8) }
+  },
+  vertexShader: `varying float vY; void main(){vY=position.y;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
+  fragmentShader: `uniform vec3 topColor,botColor;varying float vY;void main(){float t=clamp((vY+10.)/390.,0.,1.);gl_FragColor=vec4(mix(botColor,topColor,t),1.);}`
+});
+scene.add(new THREE.Mesh(new THREE.SphereGeometry(380, 16, 8), skyMat));
+
+// ── Load TGK building GLB ─────────────────────────────────────────────────────
+setProgress(10);
+const loader = new GLTFLoader();
+loader.load('tgk_svobodny1a.glb',
+  (gltf) => {
+    const model = gltf.scene;
+
+    // Scale so Z-extent = 34m (long side)
+    const bb = new THREE.Box3().setFromObject(model);
+    const sz = bb.getSize(new THREE.Vector3());
+    const scaleFactor = 34 / sz.z;
+    model.scale.setScalar(scaleFactor);
+
+    // Apply rotation: long Z axis must point to ESE (atan2(196,112)≈60°)
+    model.rotation.y = B_ROT_Y;
+
+    // Recompute bounding box after scale+rotation and place with bottom at y=0
+    const bb2 = new THREE.Box3().setFromObject(model);
+    const center = bb2.getCenter(new THREE.Vector3());
+    model.position.set(
+      BX - center.x,
+      -bb2.min.y,
+      BZ - center.z
+    );
+
+    // Fix roof material: ALL dark non-glass materials → terracotta
+    // Roof uses matSeam (seam texture, rough=0.62, metal=0.30) + matRoof (rough=1.0, metal=0.0)
+    // Glass: metal > 0.70 (keep dark). Walls: lum > 0.55 (keep cream/stone)
+    model.traverse(o => {
+      if (!o.isMesh) return;
+      o.castShadow = true;
+      o.receiveShadow = true;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      mats.forEach(m => {
+        if (!m.isMeshStandardMaterial) return;
+        const c = m.color;
+        const lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+        if (lum < 0.55 && m.metalness < 0.70) {
+          m.color.set(TERRACOTTA);
+          m.roughness = 0.85;
+          m.metalness = 0.0;
+          if (m.map) { m.map = null; }  // remove seam texture
+          m.needsUpdate = true;
+        }
+      });
+    });
+
+    scene.add(model);
+    setProgress(100);
+    document.body.dataset.modelLoaded = '1';
+
+    setTimeout(() => {
+      const ov = document.getElementById('loading');
+      if (ov) ov.classList.add('hidden');
+    }, 500);
+  },
+  (xhr) => {
+    if (xhr.total) setProgress(10 + Math.round(xhr.loaded / xhr.total * 70));
+  },
+  (err) => {
+    console.error('GLB load error', err);
+    document.body.dataset.modelError = '1';
+    const ov = document.getElementById('loading');
+    if (ov) ov.classList.add('hidden');
+  }
+);
+
+function setProgress(pct) {
+  const bar = document.getElementById('progress-bar');
+  if (bar) bar.style.width = pct + '%';
+}
+
+// ── Camera presets ─────────────────────────────────────────────────────────────
+// pos: [x,y,z], target: [x,y,z], fov
+const CAMERAS = [
+  // "С моста" — low angle from SE (bridge side), sees the SW long facade
+  { pos: [BX+55, 8, BZ+65], target: [BX, 4, BZ], fov: 48 },
+  // "Угловой 3/4" — bird's eye from SW (river side)
+  { pos: [BX-45, 35, BZ-30], target: [BX, 3, BZ], fov: 42 },
+  // "Карта" — straight top-down
+  { pos: [BX, 130, BZ], target: [BX, 0, BZ], fov: 55 },
+  // "Аэро" — high oblique from NE
+  { pos: [BX+70, 65, BZ-55], target: [BX, 0, BZ], fov: 40 },
+];
+
+function flyTo(idx) {
+  const cfg = CAMERAS[idx];
+  const p0 = camera.position.clone();
+  const t0 = controls.target.clone();
+  const p1 = new THREE.Vector3(...cfg.pos);
+  const t1 = new THREE.Vector3(...cfg.target);
+  const t_start = performance.now();
+  const dur = 900;
+
+  function step(now) {
+    const a = Math.min((now - t_start) / dur, 1);
+    const e = 1 - Math.pow(1 - a, 3);
+    camera.position.lerpVectors(p0, p1, e);
+    controls.target.lerpVectors(t0, t1, e);
+    camera.fov = THREE.MathUtils.lerp(camera.fov, cfg.fov, e);
+    camera.updateProjectionMatrix();
+    controls.update();
+    if (a < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+  document.querySelectorAll('.cam-btn').forEach((b, i) => b.classList.toggle('active', i === idx));
+}
+
+document.querySelectorAll('.cam-btn').forEach((b, i) => b.addEventListener('click', () => flyTo(i)));
+
+// Instant snap (for headless screenshots)
+window.snapCamera = function(idx) {
+  const cfg = CAMERAS[idx];
+  camera.position.set(...cfg.pos);
+  controls.target.set(...cfg.target);
+  camera.fov = cfg.fov;
+  camera.updateProjectionMatrix();
+  controls.update();
+  document.querySelectorAll('.cam-btn').forEach((b, i) => b.classList.toggle('active', i === idx));
+};
+
+// ── Resize ────────────────────────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ── Render loop ───────────────────────────────────────────────────────────────
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  const t = clock.getElapsedTime();
+  waterNorm.offset.set(t * 0.01, t * 0.007);
+  renderer.render(scene, camera);
+}
+animate();
+
+// Init camera
+flyTo(0);
+window.mapScene = scene;
+</script>
+</body>
+</html>
