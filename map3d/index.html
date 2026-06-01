@@ -237,85 +237,84 @@ bridgeDeck.position.set(65.2, 0.15, 63.0);
 bridgeDeck.castShadow = true; bridgeDeck.receiveShadow = true;
 scene.add(bridgeDeck);
 
-// ── Neighboring buildings — satellite-calibrated footprints ──────────────────
-// Calibration: SCALE=0.150 m/px, scene_x=(img_x-567)*SCALE, scene_z=(img_y-500)*SCALE
-// rot.y=atan2(dx_img, dy_img) where long axis NW→NE in image is (dx,dy)
-// rot.y=π/2 → long axis E-W; after rot, d dimension becomes E-W, w becomes N-S
-function addBuilding(cx, cz, w, d, wallH, roofH, wallMat, roofMat, rotY = 0) {
-  const g = new THREE.Group();
-  const walls = new THREE.Mesh(new THREE.BoxGeometry(w, wallH, d), wallMat);
-  walls.position.y = wallH / 2;
-  walls.castShadow = true; walls.receiveShadow = true;
-  g.add(walls);
+// ── Window texture factory (tiled facade for residential buildings) ───────────
+const _winBase = (() => {
+  const SZ = 128;
+  const c = document.createElement('canvas');
+  c.width = c.height = SZ;
+  const ctx = c.getContext('2d');
+  // Cream/beige plaster background
+  ctx.fillStyle = '#cdc4b2';
+  ctx.fillRect(0, 0, SZ, SZ);
+  // Floor separator band at bottom of each cell
+  ctx.fillStyle = '#b8b0a0';
+  ctx.fillRect(0, SZ - 5, SZ, 5);
+  // Window glass
+  const wx = 18, wy = 16, ww = 92, wh = 72;
+  ctx.fillStyle = '#7aafc6';
+  ctx.fillRect(wx, wy, ww, wh);
+  // Sill
+  ctx.fillStyle = '#e0d8c8';
+  ctx.fillRect(wx - 3, wy + wh, ww + 6, 6);
+  // Frame
+  ctx.strokeStyle = 'rgba(240,235,225,0.88)';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(wx, wy, ww, wh);
+  // Cross dividers
+  ctx.beginPath(); ctx.moveTo(wx + ww / 2, wy); ctx.lineTo(wx + ww / 2, wy + wh); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(wx, wy + wh / 2); ctx.lineTo(wx + ww, wy + wh / 2); ctx.stroke();
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+})();
 
-  // Low pyramid roof scaled to shorter dimension (avoids oversized cone on large buildings)
-  const rr = Math.min(w, d) * 0.55;
-  const roof = new THREE.Mesh(
-    new THREE.ConeGeometry(rr, roofH, 4),
-    roofMat
-  );
-  roof.rotation.y = Math.PI / 4;
-  roof.position.y = wallH + roofH / 2;
-  roof.castShadow = true;
-  g.add(roof);
-
-  g.position.set(cx, 0, cz);
-  g.rotation.y = rotY;
-  scene.add(g);
-  return g;
+// Tiled facade material: one window bay per repeat cell
+function winMat(facadeW, facadeH, bayW = 3.2, floorH = 3.0) {
+  const t = _winBase.clone();
+  t.repeat.set(Math.max(2, Math.round(facadeW / bayW)), Math.max(2, Math.round(facadeH / floorH)));
+  t.needsUpdate = true;
+  return new THREE.MeshStandardMaterial({ map: t, roughness: 0.82, metalness: 0.0 });
 }
 
-// B1 — Left top warehouse (img 346-495, 68-112)
-// Long axis NW→NE=(149,22)px → rot.y=atan2(149,22)≈1.42 rad; size 22.6×6.6m
-addBuilding(-22.0, -61.5, 6.6, 22.6, 5, 1.5, matBldg, matRoof2, Math.atan2(149, 22));
+// Flat roof material (grey slab / parapet)
+const matResRoof = new THREE.MeshStandardMaterial({ color: 0x9a9285, roughness: 0.9, metalness: 0.0 });
 
-// B2 — Right top warehouse (img 496-646, 68-112)
-// Same orientation; centre img(571,90)→scene(0.6,-61.5)
-addBuilding(0.6, -61.5, 6.6, 22.5, 5, 1.5, matBldg, matRoof2, Math.atan2(150, 22));
+// One rectangular arm of an L-shaped residential building.
+// BoxGeometry face material order: [+X(d×h), −X(d×h), +Y, −Y, +Z(w×h), −Z(w×h)]
+function addResArm(cx, cz, w, h, d, rotY = 0) {
+  const mats = [
+    winMat(d, h), winMat(d, h),   // ±X faces (depth × height)
+    matResRoof,   matResRoof,      // ±Y  (top / bottom — roof color)
+    winMat(w, h), winMat(w, h)    // ±Z faces (width × height)
+  ];
+  const box = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mats);
+  box.position.set(cx, h / 2, cz);
+  box.rotation.y = rotY;
+  box.castShadow = true; box.receiveShadow = true;
+  scene.add(box);
+  // Flat parapet slab on top (slight overhang)
+  const pH = 0.6;
+  const par = new THREE.Mesh(new THREE.BoxGeometry(w + 0.5, pH, d + 0.5), matResRoof);
+  par.position.set(cx, h + pH / 2, cz);
+  par.rotation.y = rotY;
+  par.castShadow = true;
+  scene.add(par);
+}
 
-// B3 — Upper-right main complex (img 843-1130, 18-170)
-// 43.1m E-W × 22.8m N-S; multi-storey brick; centre→scene(63,-60.9)
-addBuilding(63.0, -60.9, 22.8, 43.1, 10, 2.5, matBldg, matRoof2, Math.PI / 2);
+// ── Two 4-storey residential neighbours (Г-shaped footprints per E's markup) ──
+// Wall height = 4 floors × 3 m = 12 m.  Footprints from satellite, SCALE = 0.150 m/px.
+const RH = 12;  // residential wall height
 
-// B4 — Lower wing of upper-right complex (img 843-1095, 170-258)
-// 37.8m E-W × 13.2m N-S; centre→scene(60.3,-42.9)
-addBuilding(60.3, -42.9, 13.2, 37.8, 7, 2.0, matBldg, matRoof2, Math.PI / 2);
+// L1 — Г-образный жилой дом СЛЕВА-СВЕРХУ (north-west of our building)
+// Corner at scene (−22, −70).  Г opens toward SE (toward our building).
+addResArm(-25.5, -58.0,  7, RH, 24);   // N-S vertical arm    x:−29…−22, z:−70…−46
+addResArm( -7.0, -74.0, 30, RH,  7);   // E-W horizontal arm  x:−22… +8, z:−77.5…−70.5
 
-// B5 — Right-centre large building (img 730-1005, 285-425)
-// 41.3m E-W × 21.0m N-S; commercial; centre→scene(45.2,-21.8)
-addBuilding(45.2, -21.8, 21.0, 41.3, 5, 1.5, matBldg, matRoof2, Math.PI / 2);
-
-// B6 — Right-side structure (img 935-1085, 340-455)
-// 22.5m E-W × 17.3m N-S; centre→scene(66.5,-15.4)
-addBuilding(66.5, -15.4, 17.3, 22.5, 4, 1.5, matBldg, matRoof2, Math.PI / 2);
-
-// ── Additional neighbors (added 2026-06-01) — satellite footprint + estimated heights ──
-// All following the same coordinate mapping: scene_x=(img_x-567)*0.150, scene_z=(img_y-500)*0.150
-// Heights estimated from context: Soviet-era Tver residential = 3-9 storeys
-
-// B7 — NE embankment neighbor (img 853,573 bright patch, lum=183)
-// 3-storey commercial continuing the embankment block; rotation same as main
-addBuilding(43, 13, 15, 26, 9, 2.0, matBldg, matRoof2, B_ROT_Y);
-
-// B8 — Across the street from main building's inland face
-// Street ~10m wide from SE face (normal dir cos/−sin); 3-storey mixed use
-addBuilding(8, -12, 12, 30, 9, 2.0, matBldg, matRoof2, B_ROT_Y);
-
-// B9 — North residential block (img 620,300 bright cluster, lum=153)
-// 4-storey Soviet-era residential, E-W orientation
-addBuilding(7, -40, 14, 35, 12, 2.5, matBldg, matRoof2, Math.PI / 2);
-
-// B10 — NE street-front building, 2nd row across street
-// 2-storey commercial; fills gap between B8 and B5 on the inland street
-addBuilding(20, -20, 10, 20, 7, 1.8, matBldg, matRoof2, B_ROT_Y);
-
-// B11 — Further NE along embankment (img 853,613 area)
-// 2-storey, small café/restaurant type; end of the embankment row
-addBuilding(58, 22, 13, 22, 6, 1.5, matBldg, matRoof2, B_ROT_Y);
-
-// B12 — Northern block east of B9 (img 800,166 cluster)
-// 3-storey residential, E-W street orientation
-addBuilding(35, -50, 14, 12, 9, 2.0, matBldg, matRoof2, Math.PI / 2);
+// L2 — Г-образный жилой дом СПРАВА-ПО-ЦЕНТРУ (east of our building)
+// Corner at scene (56, −20).  Г opens toward NW (toward our building).
+addResArm( 37.5, -26.0, 37, RH, 12);   // E-W horizontal arm  x: 19…56, z:−32…−20
+addResArm( 62.0,  -9.0, 12, RH, 22);   // N-S vertical arm    x: 56…68, z:−20… +2
 
 // ── Green areas, embankment landscaping ───────────────────────────────────────
 function addGrass(cx, cz, w, d) {
