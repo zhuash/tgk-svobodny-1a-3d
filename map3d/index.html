@@ -226,45 +226,21 @@ riverPlane.position.set(-52, 0.08, 10);
 riverPlane.receiveShadow = true;
 scene.add(riverPlane);
 
-// River bank retaining walls
-function addWall(x, y, z, w, h, d, mat) {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-  m.position.set(x, y, z);
-  m.castShadow = true; m.receiveShadow = true;
-  scene.add(m); return m;
-}
-// East bank retaining wall (the embankment edge toward river)
-addWall(-14, 0.4, 10, 0.5, 1.2, 160, matBank);
-// Far west bank
-addWall(-88, 0.3, 10, 0.5, 0.8, 160, matBank);
-
-// ── Bridge (Свободный пер. crossing) ────────────────────────────────────────
-// Bridge at image ~(1015, 860) → scene (71, 0, 57), runs N-S, crosses river
-const bridgeX = 71;
-const bridgeZ0 = 30, bridgeZ1 = 100;
-const bridgeLen = bridgeZ1 - bridgeZ0;
-
-// Bridge deck
+// ── Bridge (переулок Свободный crossing Тьмаку) ─────────────────────────────
+// Satellite: img(870-1134, 840-1000) → scene center(65.2, 63.0), 40m E-W × 24m N-S
+// No railings — the old N-S fence rails appeared as "fence crossing the river"
 const bridgeDeck = new THREE.Mesh(
-  new THREE.BoxGeometry(8, 0.25, bridgeLen),
+  new THREE.BoxGeometry(40, 0.3, 24),
   matBridge
 );
-bridgeDeck.position.set(bridgeX, 0.12, (bridgeZ0 + bridgeZ1) / 2);
+bridgeDeck.position.set(65.2, 0.15, 63.0);
 bridgeDeck.castShadow = true; bridgeDeck.receiveShadow = true;
 scene.add(bridgeDeck);
 
-// Bridge piers
-for (const pz of [42, 58, 74, 90]) {
-  addWall(bridgeX, -1.5, pz, 1.5, 4, 6, matConcrete);
-}
-
-// Bridge railings (simple boxes)
-for (const side of [-3.6, 3.6]) {
-  addWall(bridgeX, 0.65, (bridgeZ0 + bridgeZ1) / 2, 0.1, 1.0, bridgeLen, matFence);
-}
-
-// ── Neighboring buildings (from satellite image analysis) ─────────────────────
-// Helper: extrude a box building with simple hip-pyramid roof
+// ── Neighboring buildings — satellite-calibrated footprints ──────────────────
+// Calibration: SCALE=0.150 m/px, scene_x=(img_x-567)*SCALE, scene_z=(img_y-500)*SCALE
+// rot.y=atan2(dx_img, dy_img) where long axis NW→NE in image is (dx,dy)
+// rot.y=π/2 → long axis E-W; after rot, d dimension becomes E-W, w becomes N-S
 function addBuilding(cx, cz, w, d, wallH, roofH, wallMat, roofMat, rotY = 0) {
   const g = new THREE.Group();
   const walls = new THREE.Mesh(new THREE.BoxGeometry(w, wallH, d), wallMat);
@@ -272,9 +248,10 @@ function addBuilding(cx, cz, w, d, wallH, roofH, wallMat, roofMat, rotY = 0) {
   walls.castShadow = true; walls.receiveShadow = true;
   g.add(walls);
 
-  // Simple pyramid/hip roof
+  // Low pyramid roof scaled to shorter dimension (avoids oversized cone on large buildings)
+  const rr = Math.min(w, d) * 0.55;
   const roof = new THREE.Mesh(
-    new THREE.ConeGeometry(Math.max(w, d) * 0.62, roofH, 4),
+    new THREE.ConeGeometry(rr, roofH, 4),
     roofMat
   );
   roof.rotation.y = Math.PI / 4;
@@ -288,27 +265,29 @@ function addBuilding(cx, cz, w, d, wallH, roofH, wallMat, roofMat, rotY = 0) {
   return g;
 }
 
-// Building 1: large factory/warehouse upper-left of image (~(530, 75) → scene(-5.9, -66.8))
-addBuilding(-5.9, -67, 31, 14, 6, 3, matBldg, matRoof2, 0.3);
+// B1 — Left top warehouse (img 346-495, 68-112)
+// Long axis NW→NE=(149,22)px → rot.y=atan2(149,22)≈1.42 rad; size 22.6×6.6m
+addBuilding(-22.0, -61.5, 6.6, 22.6, 5, 1.5, matBldg, matRoof2, Math.atan2(149, 22));
 
-// Building 2: long building center-top (~(635, 70) → scene(10.8, -68.3))
-addBuilding(11, -68, 20, 10, 5, 2.5, matBldg, matRoof2, 0.2);
+// B2 — Right top warehouse (img 496-646, 68-112)
+// Same orientation; centre img(571,90)→scene(0.6,-61.5)
+addBuilding(0.6, -61.5, 6.6, 22.5, 5, 1.5, matBldg, matRoof2, Math.atan2(150, 22));
 
-// Building 3: large L-building upper-right (~(885, 210) → scene(50.6, -46.1))
-addBuilding(51, -46, 25, 18, 7, 3.5, matBldg, matRoof2, 0);
-addBuilding(64, -38, 12, 14, 7, 3.5, matBldg, matRoof2, 0);
+// B3 — Upper-right main complex (img 843-1130, 18-170)
+// 43.1m E-W × 22.8m N-S; multi-storey brick; centre→scene(63,-60.9)
+addBuilding(63.0, -60.9, 22.8, 43.1, 10, 2.5, matBldg, matRoof2, Math.PI / 2);
 
-// Building 4: smaller residential upper-right (~(870, 310) → scene(48, -30.1))
-addBuilding(48, -30, 20, 12, 5, 2.5, matBldg, matRoof2, 0.1);
+// B4 — Lower wing of upper-right complex (img 843-1095, 170-258)
+// 37.8m E-W × 13.2m N-S; centre→scene(60.3,-42.9)
+addBuilding(60.3, -42.9, 13.2, 37.8, 7, 2.0, matBldg, matRoof2, Math.PI / 2);
 
-// Building 5: office block right side (~(975, 295) → scene(64.9, -32.4))
-addBuilding(65, -32, 14, 14, 6, 3, matBldg, matRoof2, 0);
+// B5 — Right-centre large building (img 730-1005, 285-425)
+// 41.3m E-W × 21.0m N-S; commercial; centre→scene(45.2,-21.8)
+addBuilding(45.2, -21.8, 21.0, 41.3, 5, 1.5, matBldg, matRoof2, Math.PI / 2);
 
-// Building 6: near road right (~(1005, 350) → scene(69.7, -23.9))
-addBuilding(70, -24, 10, 10, 4, 2, matBldg, matRoof2, 0.3);
-
-// Building 7: small white triangular building right-mid (~(990, 395) → scene(67.4, -16.8))
-addBuilding(67, -17, 12, 8, 3, 2, matBldg, matRoof2, -0.4);
+// B6 — Right-side structure (img 935-1085, 340-455)
+// 22.5m E-W × 17.3m N-S; centre→scene(66.5,-15.4)
+addBuilding(66.5, -15.4, 17.3, 22.5, 4, 1.5, matBldg, matRoof2, Math.PI / 2);
 
 // ── Green areas, embankment landscaping ───────────────────────────────────────
 function addGrass(cx, cz, w, d) {
@@ -382,6 +361,25 @@ const skyMat = new THREE.ShaderMaterial({
 });
 scene.add(new THREE.Mesh(new THREE.SphereGeometry(380, 16, 8), skyMat));
 
+// ── Building footprint overlay (wall outline 34×18m) ─────────────────────────
+// Magenta wireframe rectangle at ground level; coincides with GLB wall footprint
+{
+  const WALL_L = 34, WALL_W = 18;
+  const cosR = Math.cos(B_ROT_Y), sinR = Math.sin(B_ROT_Y);
+  const corners2D = [
+    [-WALL_W/2, -WALL_L/2], [WALL_W/2, -WALL_L/2],
+    [WALL_W/2,  WALL_L/2], [-WALL_W/2,  WALL_L/2],
+    [-WALL_W/2, -WALL_L/2],  // close loop
+  ];
+  const verts = new Float32Array(corners2D.flatMap(([lx, lz]) => [
+    cosR * lx + sinR * lz + BX, 0.15,
+    -sinR * lx + cosR * lz + BZ
+  ]));
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+  scene.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xff00ff, depthTest: false })));
+}
+
 // ── Load TGK building GLB ─────────────────────────────────────────────────────
 setProgress(10);
 const loader = new GLTFLoader();
@@ -389,16 +387,14 @@ loader.load('tgk_svobodny1a.glb',
   (gltf) => {
     const model = gltf.scene;
 
-    // Scale so Z-extent = 34m (long side)
-    const bb = new THREE.Box3().setFromObject(model);
-    const sz = bb.getSize(new THREE.Vector3());
-    const scaleFactor = 34 / sz.z;
-    model.scale.setScalar(scaleFactor);
+    // GLB is in real meters: wall footprint 34×18m, bbox 34.7×18.7m (eaves +0.35m/side).
+    // Satellite SCALE=0.150 m/px gives purple outline = 34m = wall reference.
+    // No uniform scale applied — building walls align with outline; eaves overhang 0.35m.
 
     // Apply rotation: long Z axis must point to ESE (atan2(196,112)≈60°)
     model.rotation.y = B_ROT_Y;
 
-    // Recompute bounding box after scale+rotation and place with bottom at y=0
+    // Recompute bounding box after rotation and place with bottom at y=0
     const bb2 = new THREE.Box3().setFromObject(model);
     const center = bb2.getCenter(new THREE.Vector3());
     model.position.set(
